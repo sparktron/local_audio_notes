@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import hashlib
 import inspect
 import json
 import os
@@ -351,14 +352,20 @@ def create_app(
                     mapping.labels(connection, identifier), key=lambda x: int(x.split()[1])
                 )
         notes, stale = None, False
-        if (directory / "notes.json").is_file():
+        path = directory / "notes.json"
+        if path.is_file() and not path.is_symlink():
+            content = path.read_bytes()
             with database(current) as connection:
-                current_inputs = verified_checkpoint(
-                    connection, identifier, directory, "summarizing"
-                )
-            # notes.json from an earlier transcript must not be shown as current notes.
-            if current_inputs is not None:
-                notes = json.loads((directory / "notes.json").read_text())
+                inputs = verified_checkpoint(connection, identifier, directory, "summarizing")
+                exported = connection.execute(
+                    "SELECT artifacts FROM checkpoints WHERE meeting_id = ? AND stage = ?",
+                    (identifier, "exporting"),
+                ).fetchone()
+            # Show only the bytes the last export of the current inputs wrote: a run that
+            # changed the transcript or evidence and stopped before exporting leaves old notes.
+            expected = json.loads(exported[0]).get("notes.json") if exported else None
+            if inputs is not None and hashlib.sha256(content).hexdigest() == expected:
+                notes = json.loads(content)
             else:
                 stale = True
         return {
