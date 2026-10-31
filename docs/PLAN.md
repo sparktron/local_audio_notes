@@ -33,5 +33,31 @@ Some basic grounding checks and security tests are necessary now to avoid unsafe
 - No models downloaded, no system services changed. GPU inference unverified.
 
 Invariants: private local data, no implicit downloads, no remote inference, no automatic
-identity assignment, no source content in logs, no deletion of originals. All phases
-after Phase 1 require a separate implementation request.
+identity assignment, no source content in logs, no deletion of originals. Each later phase
+requires a separate implementation request.
+
+## Phase 2 — reliability and evidence (requested 2026-10-30, implemented 2026-10-31)
+
+Scope: SQLite persistence, recovery, structured evidence extraction, source references,
+validation tests. Design and trade-offs: [ADR-0002](decisions/0002-phase2-evidence-and-durable-jobs.md).
+
+1. SQLite store (`storage/db.py`, `storage/migrations.py`): private file, WAL, STRICT tables,
+   forward-only migrations, downgrade refusal. Meetings registered at import; orphaned or
+   Phase 1 import directories adopted after hash verification.
+2. Durable jobs (`jobs/queue.py`): one active job per meeting, claim under the meeting flock,
+   cancellation at safe points, SIGTERM requeue, crash recovery bounded by `job_max_attempts`,
+   safe error recording (fixed messages or class names only), per-stage timings and counts.
+3. Checkpointed pipeline (`pipeline.py`): input-fingerprinted, hash-verified stage reuse so a
+   failed LLM stage or interruption never repeats completed audio work; Stage 1 chunk cache.
+4. Evidence (`extraction/`): chunked schema-constrained extraction, per-item grounding
+   validation, cross-chunk consolidation with source attribution and dispute marking.
+5. Notes (`notes/`): Stage 2 cited, grounded summary; deterministic Markdown/JSON with the ten
+   required sections and verbatim source references.
+6. Speakers (`speakers/mapping.py`): confirmed per-meeting names and segment corrections,
+   bound to the transcript hash; CLI only (UI is Phase 3). GPU OOM handling for diarization.
+7. Tests: storage/migrations, queue/recovery (including a SIGKILLed lock holder), extraction
+   hallucination cases, consolidation, summary checks, rendering, speakers and CLI commands.
+
+Not in Phase 2: web UI (Phase 3), search/embeddings/OS sandbox validation (Phase 4),
+retention policies and deletion (no request yet), real-model validation (needs models and
+consented, annotated audio).

@@ -1,1 +1,1 @@
-"""Future per-meeting confirmed names. No biometric identity inference is implemented."""
+"""Per-meeting confirmed speaker names and corrections. No biometric identity inference."""

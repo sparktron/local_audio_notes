@@ -37,7 +37,8 @@ class OllamaClient:
             raise NotesError("Invalid Ollama model inventory")
         return value["models"]
 
-    def require_local_model(self) -> None:
+    def require_local_model(self) -> str:
+        """Verify the configured model is local; return a name+digest identity for caching."""
         name = self.settings.ollama_model
         if not name or "cloud" in name.lower():
             raise NotesError("Select an installed local Ollama model in config.toml")
@@ -53,6 +54,7 @@ class OllamaClient:
             or not info.get("model_info")
         ):
             raise NotesError("Ollama model has no verifiable local model metadata")
+        return f"{name}@{matches[0].get('digest') or 'unknown-digest'}"
 
     def generate(self, system: str, content: str, schema: dict[str, Any]) -> str:
         value = self.request(

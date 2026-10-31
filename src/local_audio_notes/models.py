@@ -1,5 +1,6 @@
 """Local asset inventory. Only install_model/install_assets can use the internet."""
 
+import hashlib
 import importlib.resources
 import json
 import os
@@ -75,6 +76,20 @@ def verify_models(root: Path) -> dict[str, Path]:
         raise NotesError(
             "Required model assets missing or changed; check the model manifest"
         ) from None
+
+
+def model_fingerprints(root: Path) -> dict[str, str]:
+    """Identity (revision + file hashes) of each asset. Call verify_models first."""
+    manifest = json.loads((root / "manifest.json").read_text())
+    return {
+        kind: hashlib.sha256(
+            json.dumps(
+                {"revision": manifest[kind]["revision"], "sha256": manifest[kind]["sha256"]},
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        for kind in KINDS
+    }
 
 
 def install_model(root: Path, kind: str, repo_id: str, revision: str, allow_download: bool) -> None:

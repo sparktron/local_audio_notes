@@ -1,7 +1,7 @@
 # ADR-0001: Use extractive draft notes in Phase 1
 
 - **Date:** 2026-10-30
-- **Status:** accepted for the Phase 1 scaffold
+- **Status:** accepted for the Phase 1 scaffold; extraction design superseded by ADR-0002 (grounding rules retained)
 - **Deciders:** implementation choice under the user's privacy and Phase 1 scope
 
 ## Context

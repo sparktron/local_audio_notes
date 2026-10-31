@@ -62,11 +62,31 @@ for stronger protection. Limits bound ordinary workloads, not every decoder expl
 GPU kernel behavior; no cgroup CPU/RAM/disk quota is installed by this scaffold.
 
 Prompt data is untrusted JSON in a user role, with fixed system instructions and no tools.
-Returned quotes must exist verbatim in cited segments. Owners/deadlines must appear in
-those quotes; dates are never normalized or invented. These checks do **not** prove that
-a quote semantically approves an action. Category errors and prompt injection remain possible.
-Notes are drafts for human review. Proposals have their own section. Markdown escapes
-HTML, images, links and table metacharacters; do not later render raw transcript HTML.
+Stage 1 sends only segment IDs and text (no speaker labels, so owners cannot be inferred from
+who spoke). Every returned item is validated in code: each quote must exist in its cited
+segment (case/whitespace-insensitive; the stored quote is the transcript's own text);
+decisions, actions and follow-ups must be explicit; owners and deadlines must appear in a
+cited quote and are dropped if they are pronouns or attached to non-commitments; statements
+introducing capitalized words or numbers absent from the quotes are discarded in favour of
+the quote. Stage 2 sees only validated evidence; summary points must cite known items, may
+not introduce such words, and may not use decision wording unless a cited item is a
+decision. Rejections are recorded as counts by reason, never as content.
+
+These checks stop fabricated quotes, names, numbers and dates. They do **not** prove that a
+real quote was classified correctly, and lowercase paraphrase is unchecked: prompt injection
+can still cause misclassification of genuine transcript text. Notes are drafts for human
+review; source references always show the verbatim quote. Markdown escapes HTML, images,
+links and table metacharacters; do not later render raw transcript HTML.
+
+## Database
+
+`data/notes.sqlite3` is created 0600 by the application (symlinks refused) and, like the
+artifacts, contains transcript-derived text: extracted quotes, cached model responses,
+titles and confirmed speaker names. `status`/`jobs` output and stored error messages are
+limited to stage names, counts, durations and the application's own fixed error texts;
+library exception messages are never stored. `secure_delete` is enabled, but on SSDs and
+copy-on-write filesystems overwritten pages can persist: rely on full-volume encryption.
+Speaker names are entered explicitly by the user per meeting; no voiceprints are computed.
 
 ## Files, credentials and confidentiality
 

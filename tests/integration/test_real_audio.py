@@ -9,7 +9,7 @@ import pytest
 
 from local_audio_notes.config import load_settings
 from local_audio_notes.ingestion.importer import ingest
-from local_audio_notes.pipeline import process
+from local_audio_notes.jobs.queue import process
 from local_audio_notes.schemas import Transcript
 from local_audio_notes.security.runtime import enable_runtime
 

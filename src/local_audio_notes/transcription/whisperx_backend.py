@@ -1,7 +1,7 @@
 import gc
 import os
 import wave
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -94,7 +94,8 @@ class WhisperXBackend:
 
         nltk.download = no_download
 
-    def transcribe(self, path: Path) -> Transcript:
+    def transcribe(self, path: Path, check: Callable[[], None] = lambda: None) -> Transcript:
+        """`check` runs between audio windows so cancellation does not wait for the whole file."""
         import whisperx
 
         model = None
@@ -112,6 +113,7 @@ class WhisperXBackend:
                 threads=self.settings.cpu_threads,
             )
             for offset, audio in audio_windows(path, self.settings.audio_window_seconds):
+                check()
                 while True:
                     try:
                         result = model.transcribe(

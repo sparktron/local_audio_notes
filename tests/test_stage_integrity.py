@@ -1,24 +1,20 @@
-import json
-from types import SimpleNamespace
-
 import pytest
 
-import local_audio_notes.pipeline as pipeline
 from local_audio_notes.errors import NotesError
 from local_audio_notes.ingestion.importer import ingest
+from local_audio_notes.jobs.queue import process
 from local_audio_notes.security import runtime
 
 
-def test_notes_retry_rejects_changed_transcript(audio, settings, monkeypatch):
+def test_notes_retry_rejects_changed_transcript(audio, settings, mocked):
+    calls, ollama = mocked
     identifier = ingest(audio, settings)
+    process(settings, identifier)
     folder = settings.data_dir / identifier
     (folder / "transcript.json").write_text('{"language": "en", "segments": []}')
-    monkeypatch.setattr(
-        pipeline, "OllamaClient", lambda *args: SimpleNamespace(require_local_model=lambda: None)
-    )
-    with pytest.raises(NotesError, match="transcript integrity"):
-        pipeline.process(settings, identifier, notes_only=True)
-    assert json.loads((folder / "meeting.json").read_text())["state"] == "failed"
+    with pytest.raises(NotesError, match="integrity verification"):
+        process(settings, identifier, notes_only=True)
+    assert calls.transcribe == 1
 
 
 def test_isolation_probe_failure_is_closed(monkeypatch):

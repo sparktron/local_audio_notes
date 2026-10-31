@@ -1,55 +1,43 @@
-# Status — 2026-10-30
+# Status — 2026-10-31
 
-Base commit: b6a6f84 (initial README). Scaffold/Phase 1 work is uncommitted in this checkout.
+Branch `phases-1-2` (not pushed): 1e9a357 Phase 1 (written in a separate Codex session,
+committed afterwards from its final state), then the Phase 2 commit, on top of b6a6f84.
 
 ## Current state
 
-- Typed Python 3.11–3.13 package and CLI implemented. Local Python 3.12 .venv installed
-  with lightweight runtime/development dependencies only.
-- Validated, hash-preserving import; actual ffmpeg media handling; optional timed transcript
-  alignment / exact comparison; offline WhisperX/Community-1 adapters; conservative speaker
-  assignment; local schema-constrained extractive draft notes and Markdown/JSON exports.
-- Atomic stage artifacts, advisory single-writer locks, integrity checks, manual notes-only
-  retry, stage errors and durations. No durable queue or automatic recovery claims.
-- Explicit model preparation/checks, restrictive storage, Python network guard and strict
-  namespace prerequisite check, setup and offline scripts, operational/security docs.
+- Phase 1 (unchanged in substance): typed package and CLI; validated, hash-preserving import;
+  ffmpeg handling; offline WhisperX/Community-1 adapters; conservative speaker attribution;
+  explicit model preparation/checks; Python network guard; strict namespace prerequisite.
+- Phase 2: private SQLite store with migrations; durable job queue (enqueue, worker, cancel,
+  recover, status, jobs) with flock-based crash recovery and SIGTERM requeue; input-fingerprinted,
+  hash-verified stage checkpoints and a Stage 1 chunk cache; two-stage grounded evidence
+  extraction, consolidation and cited summary; Markdown/JSON exports with verbatim source
+  references; confirmed per-meeting speaker names/corrections and meeting title/date via CLI;
+  diarization GPU-OOM batch reduction with opt-in CPU fallback.
+- 126 tests pass, 1 opt-in integration test skipped; Ruff check/format clean. See VALIDATION.md.
 
 ## Active work
 
-None after Phase 1 handoff. User explicitly requested stopping before later phases.
+None. Phase 2 complete as requested; Phase 3 not started (needs a separate request).
 
 ## Known limitations and unverified
 
-- Inference dependencies/models were not installed; Ollama is not on PATH and its local
-  API refused connection. No real transcription, alignment, diarization or LLM output was
-  evaluated. RTX 3090/driver detection is not GPU inference validation.
-- No model benchmark, WER/DER quality measurement, production load result, or native egress
-  observation. Tests use real ffmpeg and synthetic fixtures/mocked inference.
-- Strict offline mode correctly rejects the host namespace. Successful namespace creation,
-  shared isolated Ollama/GPU operation and actual offline inference remain unverified.
-- Audio-window boundary effects, whole-recording diarization RAM and torchcodec/shared
-  ffmpeg compatibility need actual-audio validation. Semantic category classification is
-  not proven by exact quote checks; notes require human review.
-- SQLite/migrations, durable jobs/restart recovery, full evidence consolidation, web UI,
-  speaker corrections, cancellation/retention services and search are deferred.
-- No encryption at rest, cgroup resource enforcement, hostile same-UID protection, secure
-  deletion or automatic original retention/deletion. Use encrypted underlying storage.
+- Still no real inference: inference stack and models are not installed and Ollama was not
+  reachable. All model behavior in tests is mocked. Real extraction quality, rejection rates,
+  consolidation on paraphrased repeats and summary usefulness with a Qwen 14B-class model are
+  unmeasured. Performance (stage timings, GPU memory) has not been measured.
+- Grounding checks catch fabricated quotes, names, numbers and dates, not misclassification of
+  real quotes or lowercase paraphrase. Sentence-start exemptions are English-only.
+- Diarization OOM recovery is tested with a fake pipeline only; pyannote 4 batch-size attribute
+  names are taken from its API, not verified against an installed version.
+- Recovery assumes a single host and a local filesystem with working `flock`.
+- Cancellation cannot interrupt a single native call (one transcription window, one LLM request,
+  whole-file diarization).
+- No retention policy or deletion; no encryption at rest; web UI and search not implemented.
+- Earlier unverified items remain: GPU inference, offline namespace operation, native egress.
 
 ## Next (only on explicit request)
 
-Install the inference extra and explicitly approved model assets; locate the intended Ollama
-installation; select an already-local Qwen 14B-class model if available. Run the opt-in real
-audio integration test with consented, annotated audio and collect actual stage time/GPU use
-and human grounding/diarization review. Validate namespace isolation with actual egress
-observation. Then plan Phase 2 separately; do not infer that deferred phases are authorized.
-
-See VALIDATION.md for exact checks and results.
-
-## Concurrent checkout changes at handoff
-
-Separate SQLite files `storage/db.py` and `storage/migrations.py` appeared during final
-checks, and another writer changed `storage/locking.py`. Those changes were preserved,
-not included in the Phase 1 implementation or reviewed as completed Phase 2 work.
-The Phase 1 scope above describes this task's deliverable. Full-checkout Ruff currently
-reports issues in that concurrent storage work; see VALIDATION.md. Coordinate with its
-owner before changing those files or interpreting them as an authorized next phase.
+Review and merge or push `phases-1-2` when ready. Install the inference stack and
+approved models, select an installed local model, and run the opt-in integration test on
+consented audio to obtain real stage timings and review rejection counts. Then Phase 3.

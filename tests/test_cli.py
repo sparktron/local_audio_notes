@@ -8,7 +8,7 @@ def test_cli_help():
         [sys.executable, "-m", "local_audio_notes", "--help"], capture_output=True, text=True
     )
     assert result.returncode == 0
-    assert "Phase 1 CLI" in result.stdout
+    assert "Local audio notes CLI" in result.stdout
 
 
 def test_cli_ingest_and_status(audio, tmp_path):
@@ -37,6 +37,7 @@ def test_cli_error_does_not_log_private_path(tmp_path):
         capture_output=True,
         text=True,
         env={**os.environ},
+        cwd=tmp_path,  # default relative data_dir must not land in the repository
     )
     assert result.returncode == 1
     assert "CONFIDENTIAL" not in result.stdout + result.stderr

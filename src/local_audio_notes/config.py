@@ -24,6 +24,10 @@ class Settings(BaseModel):
     max_transcript_bytes: int = Field(default=10 * 1024**2, ge=1, le=100 * 1024**2)
     audio_window_seconds: int = Field(default=600, ge=30, le=1800)
     chunk_chars: int = Field(default=5000, ge=500, le=6000)
+    chunk_overlap_segments: int = Field(default=2, ge=0, le=10)
+    job_max_attempts: int = Field(default=3, ge=1, le=10)
+    # Retry diarization on CPU after GPU OOM at the smallest batch. Slow; opt-in.
+    oom_cpu_fallback: bool = False
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = ""
     ollama_context: int = Field(default=8192, ge=8192, le=16384)

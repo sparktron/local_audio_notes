@@ -5,15 +5,30 @@ import json
 import os
 import platform
 import shutil
+import signal
+import sqlite3
 import subprocess
 import sys
+from collections.abc import Iterator
+from datetime import date
 from pathlib import Path
+from typing import Any
 
 from pydantic import ValidationError
 
-from local_audio_notes.config import load_settings
-from local_audio_notes.errors import NotesError
+from local_audio_notes.config import Settings, load_settings
+from local_audio_notes.errors import Interrupted, NotesError
+from local_audio_notes.extraction.grounding import normalize
 from local_audio_notes.ingestion.importer import ingest
+from local_audio_notes.jobs.queue import (
+    cancel,
+    describe,
+    enqueue,
+    lock_path,
+    process,
+    recover,
+    work,
+)
 from local_audio_notes.llm.ollama import OllamaClient
 from local_audio_notes.models import (
     KINDS,
@@ -22,12 +37,23 @@ from local_audio_notes.models import (
     register_model,
     verify_models,
 )
-from local_audio_notes.pipeline import load_meeting, process
+from local_audio_notes.pipeline import export_notes, get_meeting, verified_checkpoint
 from local_audio_notes.security.runtime import enable_runtime, isolated_network
+from local_audio_notes.speakers import mapping
+from local_audio_notes.storage.db import connect, transaction
+from local_audio_notes.storage.files import meeting_dir
+from local_audio_notes.storage.locking import exclusive_lock
+
+
+def _pair(value: str) -> tuple[str, str]:
+    key, separator, other = value.partition("=")
+    if not separator or not key.strip() or not other.strip():
+        raise argparse.ArgumentTypeError("expected KEY=VALUE")
+    return key.strip(), other.strip()
 
 
 def parser() -> argparse.ArgumentParser:
-    cli = argparse.ArgumentParser(description="Local audio notes — Phase 1 CLI")
+    cli = argparse.ArgumentParser(description="Local audio notes CLI")
     cli.add_argument("--config", type=Path, help="TOML configuration (no automatic .env loading)")
     sub = cli.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="Inspect installed tools without changing the machine")
@@ -38,12 +64,50 @@ def parser() -> argparse.ArgumentParser:
     importer = sub.add_parser("ingest", help="Copy and validate audio; prints meeting ID")
     importer.add_argument("audio", type=Path)
     importer.add_argument("--transcript", type=Path)
-    runner = sub.add_parser("run", help="Process imported audio or retry only notes")
-    runner.add_argument("meeting_id")
-    runner.add_argument("--mode", choices=["transcribe", "align", "compare"], default="transcribe")
-    runner.add_argument("--notes-only", action="store_true")
+    for name, text in (
+        ("run", "Queue and process a meeting now, resuming from verified checkpoints"),
+        ("enqueue", "Queue processing for a later worker run; prints the job ID"),
+    ):
+        runner = sub.add_parser(name, help=text)
+        runner.add_argument("meeting_id")
+        runner.add_argument(
+            "--mode", choices=["transcribe", "align", "compare"], default="transcribe"
+        )
+        runner.add_argument(
+            "--notes-only", action="store_true", help="Reuse the attributed transcript"
+        )
+        runner.add_argument("--force", action="store_true", help="Ignore stage checkpoints")
+    worker = sub.add_parser("worker", help="Recover abandoned jobs, then run queued jobs")
+    worker.add_argument("--once", action="store_true", help="Run at most one job")
+    jobs = sub.add_parser("jobs", help="List recent jobs (no transcript content)")
+    jobs.add_argument("--limit", type=int, default=20)
+    stop = sub.add_parser("cancel", help="Cancel a queued job or stop a running one safely")
+    stop.add_argument("job_id", type=int)
+    sub.add_parser("recover", help="Requeue jobs whose worker died; adopt orphan imports")
     status = sub.add_parser("status", help="Show stage and metrics, never transcript text")
     status.add_argument("meeting_id")
+    meta = sub.add_parser("meeting-set", help="Set or clear the meeting title and date")
+    meta.add_argument("meeting_id")
+    meta.add_argument("--title")
+    meta.add_argument("--date", help="YYYY-MM-DD")
+    meta.add_argument("--clear-title", action="store_true")
+    meta.add_argument("--clear-date", action="store_true")
+    speakers = sub.add_parser(
+        "speakers", help="Show or confirm speaker names and segment corrections for one meeting"
+    )
+    speakers.add_argument("meeting_id")
+    speakers.add_argument(
+        "--name", type=_pair, action="append", default=[], metavar="'Speaker N=Name'"
+    )
+    speakers.add_argument("--unname", action="append", default=[], metavar="'Speaker N'")
+    speakers.add_argument(
+        "--assign", type=_pair, action="append", default=[], metavar="'s000123=Speaker N'"
+    )
+    speakers.add_argument("--unassign", action="append", default=[], metavar="s000123")
+    export = sub.add_parser("export", help="Re-render notes; optionally copy them to a new file")
+    export.add_argument("meeting_id")
+    export.add_argument("--format", choices=["md", "json"], default="md")
+    export.add_argument("--output", type=Path, help="New file to create (never overwritten)")
     install = sub.add_parser("models-install", help="Explicit network-enabled model installation")
     install.add_argument("--kind", required=True, choices=KINDS[:3])
     install.add_argument("--repo", required=True)
@@ -91,6 +155,177 @@ def doctor() -> dict:
     }
 
 
+@contextlib.contextmanager
+def quiet() -> Iterator[None]:
+    # Third-party ML libraries occasionally print file paths or transcript snippets.
+    # Keep stdout/stderr quiet while they run; safe errors are reported afterwards.
+    with (
+        open(os.devnull, "w") as sink,
+        contextlib.redirect_stdout(sink),
+        contextlib.redirect_stderr(sink),
+    ):
+        yield
+
+
+@contextlib.contextmanager
+def requeue_on_sigterm() -> Iterator[None]:
+    """A service stop returns the running job to the queue instead of failing it."""
+
+    def terminate(signum: int, frame: Any) -> None:
+        raise Interrupted
+
+    previous = signal.signal(signal.SIGTERM, terminate)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+def _transcript_sha(settings: Settings, connection: sqlite3.Connection, meeting_id: str) -> str:
+    found = verified_checkpoint(
+        connection, meeting_id, meeting_dir(settings.data_dir, meeting_id), "attributing"
+    )
+    if found is None:
+        raise NotesError("Speaker labels exist only after processing; run the meeting first")
+    return found["transcript.json"]
+
+
+def _rerender(settings: Settings, connection: sqlite3.Connection, meeting_id: str) -> bool:
+    """Refresh existing notes after metadata/speaker edits; no model calls."""
+    directory = meeting_dir(settings.data_dir, meeting_id)
+    if verified_checkpoint(connection, meeting_id, directory, "summarizing") is None:
+        return False
+    with exclusive_lock(lock_path(settings, meeting_id)):
+        export_notes(settings, connection, meeting_id)
+    return True
+
+
+def _meeting_set(args: argparse.Namespace, settings: Settings, connection: Any) -> None:
+    get_meeting(connection, args.meeting_id)
+    updates: dict[str, str | None] = {}
+    if args.title is not None:
+        title = normalize(args.title)
+        if not 1 <= len(title) <= 200 or any(not c.isprintable() for c in title):
+            raise NotesError("Title must be 1-200 printable characters")
+        updates["title"] = title
+    if args.date is not None:
+        try:
+            updates["meeting_date"] = date.fromisoformat(args.date).isoformat()
+        except ValueError:
+            raise NotesError("Date must be YYYY-MM-DD") from None
+    if args.clear_title:
+        updates["title"] = None
+    if args.clear_date:
+        updates["meeting_date"] = None
+    with transaction(connection):
+        for column, value in updates.items():
+            connection.execute(
+                f"UPDATE meetings SET {column} = ? WHERE id = ?", (value, args.meeting_id)
+            )
+    print("Notes re-rendered" if _rerender(settings, connection, args.meeting_id) else "Saved")
+
+
+def _speakers(args: argparse.Namespace, settings: Settings, connection: Any) -> None:
+    meeting_id = args.meeting_id
+    get_meeting(connection, meeting_id)
+    transcript_sha = _transcript_sha(settings, connection, meeting_id)
+    for label, name in args.name:
+        mapping.set_name(connection, meeting_id, transcript_sha, label, name)
+    for label in args.unname:
+        mapping.clear_name(connection, meeting_id, transcript_sha, label)
+    for segment_id, label in args.assign:
+        mapping.correct_segment(connection, meeting_id, transcript_sha, segment_id, label)
+    for segment_id in args.unassign:
+        mapping.clear_correction(connection, meeting_id, transcript_sha, segment_id)
+    view = mapping.load_view(connection, meeting_id, transcript_sha)
+    changed = args.name or args.unname or args.assign or args.unassign
+    print(
+        json.dumps(
+            {
+                "labels": sorted(mapping.labels(connection, meeting_id)),
+                "confirmed_names": view.names,
+                "segment_corrections": view.overrides,
+                "stale_entries_not_applied": view.stale_entries,
+                "notes_rerendered": bool(changed) and _rerender(settings, connection, meeting_id),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def _export(args: argparse.Namespace, settings: Settings, connection: Any) -> None:
+    get_meeting(connection, args.meeting_id)
+    with exclusive_lock(lock_path(settings, args.meeting_id)):
+        export_notes(settings, connection, args.meeting_id)
+    source = meeting_dir(settings.data_dir, args.meeting_id) / f"notes.{args.format}"
+    if args.output is None:
+        print(source)
+        return
+    try:
+        descriptor = os.open(
+            args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
+        )
+    except OSError:
+        raise NotesError(
+            "Output must be a new file path; existing files are never overwritten"
+        ) from None
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(source.read_bytes())
+        handle.flush()
+        os.fsync(handle.fileno())
+    print("Exported")
+
+
+def _queue_command(args: argparse.Namespace, settings: Settings) -> int:
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        if args.command == "enqueue":
+            kind = "notes" if args.notes_only else "full"
+            print(enqueue(connection, settings, args.meeting_id, kind, args.mode, args.force))
+            return 0
+        if args.command == "worker":
+            with requeue_on_sigterm(), quiet():
+                results = work(settings, connection, once=args.once)
+            for job_id, outcome in results:
+                print(json.dumps({"job": job_id, "outcome": outcome}))
+            return 1 if any(outcome != "succeeded" for _, outcome in results) else 0
+        if args.command == "jobs":
+            rows = connection.execute(
+                "SELECT id, meeting_id, kind, mode, state, stage, attempts, error_stage, "
+                "error_class, created_at, finished_at FROM jobs ORDER BY id DESC LIMIT ?",
+                (max(1, min(args.limit, 1000)),),
+            )
+            for row in rows:
+                print(json.dumps(dict(row)))
+        elif args.command == "cancel":
+            print(cancel(connection, args.job_id))
+        elif args.command == "recover":
+            print(json.dumps(recover(connection, settings)))
+        elif args.command == "status":
+            meeting_dir(settings.data_dir, args.meeting_id)
+            print(json.dumps(describe(connection, args.meeting_id), indent=2))
+        elif args.command == "meeting-set":
+            _meeting_set(args, settings, connection)
+        elif args.command == "speakers":
+            _speakers(args, settings, connection)
+        elif args.command == "export":
+            _export(args, settings, connection)
+    return 0
+
+
+QUEUE_COMMANDS = {
+    "enqueue",
+    "worker",
+    "jobs",
+    "cancel",
+    "recover",
+    "status",
+    "meeting-set",
+    "speakers",
+    "export",
+}
+
+
 def main(argv: list[str] | None = None) -> int:
     cli = parser()
     args = cli.parse_args(argv)
@@ -119,27 +354,11 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "ingest":
             print(ingest(args.audio, settings, args.transcript))
         elif args.command == "run":
-            # Third-party ML libraries occasionally print file paths or transcript snippets.
-            # Keep stdout/stderr quiet while they run; safe errors are handled below.
-            with (
-                open(os.devnull, "w") as sink,
-                contextlib.redirect_stdout(sink),
-                contextlib.redirect_stderr(sink),
-            ):
-                process(settings, args.meeting_id, args.mode, args.notes_only)
+            with requeue_on_sigterm(), quiet():
+                process(settings, args.meeting_id, args.mode, args.notes_only, args.force)
             print("Complete: notes.md, notes.json and transcript.json in the meeting directory")
-        elif args.command == "status":
-            _, metadata = load_meeting(settings, args.meeting_id)
-            print(
-                json.dumps(
-                    {
-                        k: metadata[k]
-                        for k in ("id", "state", "failed_stage", "error", "timings")
-                        if k in metadata
-                    },
-                    indent=2,
-                )
-            )
+        elif args.command in QUEUE_COMMANDS:
+            return _queue_command(args, settings)
         elif args.command == "models-check":
             print(json.dumps({"verified": list(verify_models(settings.models_dir))}))
         elif args.command == "ollama-models":
@@ -188,6 +407,9 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("Interrupted; original recordings and completed artifacts retained", file=sys.stderr)
         return 130
+    except Interrupted:
+        print("Stopped by signal; the job was returned to the queue", file=sys.stderr)
+        return 143
     except Exception as error:
         # Native library exceptions may contain transcript excerpts, paths or tokens.
         print(

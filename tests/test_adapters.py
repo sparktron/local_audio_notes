@@ -121,3 +121,42 @@ def test_community_regular_output_preserves_overlaps(settings, audio, tmp_path, 
     assert len(result) == 2 and result[1].start < result[0].end
     assert calls == ["cpu"]
     del pipeline
+
+
+@pytest.mark.parametrize("fallback", [False, True])
+def test_diarization_oom_halves_batches_then_optional_cpu(
+    settings, audio, tmp_path, monkeypatch, fallback
+):
+    attempts = []
+
+    class Pipeline:
+        segmentation_batch_size = 4
+        embedding_batch_size = 4
+
+        @staticmethod
+        def from_pretrained(path):
+            return Pipeline()
+
+        def to(self, device):
+            self.device = device
+
+        def __call__(self, path, **kwargs):
+            attempts.append((self.device, self.embedding_batch_size))
+            if self.device == "cuda":
+                raise RuntimeError("CUDA out of memory")
+            annotation = SimpleNamespace(
+                itertracks=lambda **kwargs: [(SimpleNamespace(start=0, end=1), None, "A")]
+            )
+            return SimpleNamespace(speaker_diarization=annotation)
+
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(device=lambda value: value))
+    monkeypatch.setitem(sys.modules, "pyannote.audio", SimpleNamespace(Pipeline=Pipeline))
+    monkeypatch.setattr("local_audio_notes.diarization.community.release_gpu", lambda: None)
+    settings = settings.model_copy(update={"oom_cpu_fallback": fallback})
+    if not fallback:
+        with pytest.raises(NotesError, match="out of memory"):
+            diarize(audio, tmp_path, settings, "cuda")
+        assert attempts == [("cuda", 4), ("cuda", 2), ("cuda", 1)]
+    else:
+        assert len(diarize(audio, tmp_path, settings, "cuda")) == 1
+        assert attempts[-1] == ("cpu", 1)

@@ -1,4 +1,50 @@
-# Validation — 2026-10-30
+# Validation
+
+## Phase 2 — 2026-10-31
+
+Run on the inspected workstation in this session's shell, Python 3.12.13 venv.
+
+- `.venv/bin/python -m pytest -q`: **126 passed, 1 skipped** (the opt-in real-audio test),
+  about 16 seconds. Not an inference performance result.
+- `.venv/bin/ruff check .` and `.venv/bin/ruff format --check .`: passed (60 files).
+- `.venv/bin/python -m pip check`: passed.
+- Offline wheel build (`pip wheel --no-build-isolation --no-deps --no-index`): passed after
+  removing a stale, gitignored `build/` cache that had packaged the removed Phase 1
+  `notes/generate.py`; the rebuilt wheel contains 47 files and no stale module.
+- `config.example.toml` loads and validates, including the new keys.
+- Manual CLI run without mocks (temporary data directory, application network guard on,
+  no Ollama running): `ingest` twice returned the same ID; `enqueue`, `jobs`, `worker`
+  recorded a durable failed job at `preflight` with the safe message "Local Ollama API
+  unavailable"; `run --notes-only` created a second job and failed safely; `export` and
+  `speakers` refused before processing; `recover` reported nothing to do; database and
+  artifacts were mode 0600 in 0700 directories.
+
+New coverage: migrations (idempotent, downgrade refused, symlinked DB refused, CHECK
+constraints); ingest registration/idempotency; orphan and Phase 1 directory adoption, with
+tampered originals refused; enqueue idempotency and conflicts; cancel of queued and running
+jobs (stops at the next stage, resumes without repeating audio or LLM work); recovery of a
+running job with no lock holder, with a live holder, with a real SIGKILLed subprocess
+holding the lock, and after `job_max_attempts`; SIGTERM requeue; Ctrl-C cancel; failure
+recording without library exception text; GPU OOM classification; queue ordering;
+checkpoint reuse, tamper-driven recomputation of exactly the affected stage, `--force`;
+LLM failure resumed from cached chunks without retranscribing; notes-only integrity
+refusal; grounding (quote location, entity/number checks, sentence-start exemptions);
+rejection of fabricated quotes, wrong-segment citations, unknown segments and inferred
+decisions; stripping of invented deadlines, absent or pronoun owners and owners on
+non-commitments; chunk overlap and bounds; chunk cache invalidation by model;
+consolidation of overlap duplicates and restatements, distinct owners kept apart, short
+repeats not merged, disputes flagged; summary rejection of ungrounded points and titles,
+unknown citations and unsupported decision wording; rendering of all sections, markers,
+speaker names, corrections and escaping; JSON export; speaker name/correction validation
+and staleness; diarization OOM batch halving and CPU fallback (fake pipeline); and the
+new CLI commands end to end with mocked inference.
+
+Not demonstrated in Phase 2: any real model output (all inference mocked), real rejection
+or dispute rates, extraction/summary quality, stage timings or GPU memory on real audio,
+pyannote batch attribute names on an installed pyannote, multi-host or network-filesystem
+recovery. The synthetic fixture is text, not an acoustic or quality benchmark.
+
+## Phase 1 — 2026-10-30 (historical)
 
 ## Demonstrated
 
@@ -56,11 +102,6 @@ the dev extra now includes build tooling so packaging can be validated offline.
 
 ## Concurrent edits during closeout
 
-After the successful full lint/format checks and wheel build, separate edits appeared in
-`storage/db.py`, `storage/migrations.py` and the shared `storage/locking.py`. They were not
-written as part of this Phase 1 implementation and were left intact. The final pytest
-gate still returned **68 passed, 1 skipped**. The current full-checkout Ruff gate then
-reported line-length errors in the concurrently edited storage files; formatting also
-reported locking.py after it changed. The 47 unchanged Phase 1 Python files pass both
-Ruff checks when the concurrently modified locking.py is excluded. Earlier full-gate
-passes are historical results, not a claim that the changing checkout is currently lint-clean.
+The storage files that appeared during Phase 1 closeout (`storage/db.py`,
+`storage/migrations.py`, `storage/locking.py`) were the start of the Phase 2 implementation in
+a parallel session. They are now complete, lint-clean and covered by the Phase 2 results above.

@@ -1,1 +1,1 @@
-"""Reserved for Phase 2 durable jobs, leases, cancellation and restart recovery."""
+"""Durable SQLite job queue, cancellation and restart recovery."""

@@ -1,1 +1,1 @@
-"""Reserved for Phase 2 evidence extraction and consolidation."""
+"""Stage 1 evidence extraction, grounding checks and cross-chunk consolidation."""

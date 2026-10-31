@@ -23,15 +23,16 @@
 - **Language mismatch**: automatic detection is available, but the alignment model must
   support that language. Install/register an appropriate local CTC model and set
   alignment_language. Runtime will fail instead of downloading a language model.
-- **Unsupported WhisperBoard export**: Phase 1 accepts UTF-8 TXT for comparison and
+- **Unsupported WhisperBoard export**: the importer accepts UTF-8 TXT for comparison and
   strictly documented numeric-seconds JSON/SRT for alignment. Arbitrary vendor JSON or
   untimed TXT cannot be assumed compatible. Convert deliberately using the schema in README.
-- **GPU out of memory**: transcription retries with smaller batches to 1, then fails
-  with original/stage artifacts retained. Reduce batch_size, use int8_float16, a smaller
-  installed Whisper model, or explicitly device="cpu". Alignment/diarization OOM needs
-  a manual CPU rerun; there is no silent quality-reducing skip. The pipeline releases
-  each audio model before loading the next. Unrelated Ollama models may already occupy VRAM;
-  this CLI does not forcibly unload them. Ollama calls use keep_alive=0 for their own model.
+- **GPU out of memory**: transcription retries with smaller batches down to 1; diarization
+  halves pyannote batch sizes down to 1 and, only with `oom_cpu_fallback = true`, retries on
+  CPU. Otherwise the job fails with `GpuOutOfMemory`, keeping completed stages. Reduce
+  batch_size, use int8_float16, a smaller installed Whisper model, or device="cpu", then
+  `run` again: verified stages are reused. There is no silent quality-reducing skip.
+  Unrelated Ollama models may already occupy VRAM; this CLI does not forcibly unload them.
+  Ollama calls use keep_alive=0 for their own model.
 - **CUDA detected but inference fails**: nvcc/nvidia-smi do not prove PyTorch/CTranslate2
   compatibility. Check the isolated environment's torch version and `torch.cuda.is_available()`.
   WhisperX 3.8.6 uses torch/torchaudio 2.8 and CUDA wheels/dependency libraries must match.
@@ -40,10 +41,24 @@
   ffmpeg 4.4 binary is verified for import/normalization only; torchcodec's shared library
   compatibility remains untested. Install matching trusted wheels in the venv, not system
   replacements, and test a real fixture.
-- **Failed notes**: `status ID` reports the safe error class/stage. Fix model/config and
-  `run ID --notes-only`; verbatim and attributed transcripts remain intact. If a prior
-  successful notes file exists, it stays as the prior output until replacement succeeds;
-  check meeting state before using it. Full run recomputes audio stages.
+- **Failed or cancelled job**: `status ID` shows the failed stage, safe error text and stage
+  timings; `jobs` lists recent jobs. Fix the cause and `run ID` again: stages whose
+  fingerprints and artifact hashes still match are skipped, and Stage 1 reuses cached chunk
+  responses, so neither audio nor completed LLM chunks are redone. `--notes-only` skips audio
+  stages entirely; `--force` recomputes everything. Prior `notes.md` stays until a new export.
+- **"A different job is already active"**: one job per meeting. `cancel JOB_ID` first.
+- **Job stuck in `running`**: `recover` (also run automatically by `run`/`worker`) requeues
+  it if no process holds the meeting lock; if a process does, it is still working. After
+  `job_max_attempts` crashes the job is marked failed to stop crash loops.
+- **"Database schema is newer than this application"**: an older checkout opened a database
+  migrated by a newer one. Use the newer version; never downgrade the schema by hand.
+- **Notes say items were rejected or stripped**: the model returned quotes not in the
+  transcript, inferred commitments, or unsupported owners/deadlines/names. Counts appear in
+  "Extraction review". Many rejections suggest trying another installed model or a smaller
+  `chunk_chars`. Disputed items were classified both ways in overlapping chunks: check audio.
+- **Speaker names disappeared after reprocessing**: names and corrections are bound to one
+  attributed transcript. Re-diarization can renumber speakers, so older mappings are reported
+  as stale and not applied. Confirm names again with `speakers`.
 - **No word timestamps for a word**: alignment can fail on punctuation, names, numbers,
   unsupported language or bad audio. Missing timestamps/labels remain null/Unknown.
   Segment intervals do not imply word-level confidence. Review against original audio.

@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -62,26 +62,97 @@ class SpeakerTurn(Interval):
     speaker: str
 
 
-class DraftItem(StrictModel):
-    category: Literal[
-        "purpose",
-        "topic",
-        "decision",
-        "proposal",
-        "action",
-        "risk",
-        "blocker",
-        "question",
-        "requirement",
-        "fact",
-        "follow_up",
-    ]
-    # Extractive Phase 1 output: quote itself is displayed, not an unchecked paraphrase.
-    quote: str = Field(min_length=1, max_length=2000)
+Category = Literal[
+    "purpose",
+    "topic",
+    "decision",
+    "proposal",
+    "action",
+    "risk",
+    "blocker",
+    "question",
+    "requirement",
+    "fact",
+    "follow_up",
+]
+CATEGORIES: tuple[str, ...] = get_args(Category)
+# Only explicit commitments may carry an owner or deadline.
+COMMITMENTS = frozenset({"action", "follow_up"})
+# Never accepted as inferences: these must be stated in the recording.
+EXPLICIT_ONLY = frozenset({"decision", "action", "follow_up"})
+
+
+# --- Model-facing schemas (Ollama `format`). No regex patterns: grammar support varies.
+
+
+class QuoteRef(StrictModel):
+    segment_id: str = Field(min_length=1, max_length=32)
+    quote: str = Field(min_length=1, max_length=1000)
+
+
+class ExtractedItem(StrictModel):
+    category: Category
+    statement: str = Field(min_length=1, max_length=400)
+    basis: Literal["explicit", "inferred"]
+    evidence: list[QuoteRef] = Field(min_length=1, max_length=4)
+    owner: str | None = Field(default=None, max_length=120)
+    deadline: str | None = Field(default=None, max_length=120)
+
+
+class ExtractionResult(StrictModel):
+    items: list[ExtractedItem] = Field(max_length=60)
+
+
+class SummaryPoint(StrictModel):
+    text: str = Field(min_length=1, max_length=400)
+    item_ids: list[str] = Field(min_length=1, max_length=8)
+
+
+class MeetingSummary(StrictModel):
+    title: str = Field(min_length=1, max_length=120)
+    points: list[SummaryPoint] = Field(max_length=8)
+
+
+# --- Validated evidence. Times and speakers come from the transcript, never the model.
+
+
+class Evidence(StrictModel):
     segment_id: str
+    quote: str = Field(min_length=1)
+    start: float = Field(ge=0)
+    end: float = Field(ge=0)
+    speaker: str
+
+
+class EvidenceItem(StrictModel):
+    id: str = ""
+    category: Category
+    # Model paraphrase that passed the grounding check, else None (render the quote).
+    statement: str | None
+    basis: Literal["explicit", "inferred"]
     owner: str | None = None
     deadline: str | None = None
+    evidence: list[Evidence] = Field(min_length=1)
+    # Overlapping chunks classified the same excerpt differently; needs human review.
+    disputed: bool = False
 
 
-class DraftNotes(StrictModel):
-    items: list[DraftItem] = Field(max_length=100)
+class ExtractionOutcome(StrictModel):
+    items: list[EvidenceItem]
+    # Counts of rejected items or stripped fields by reason. Never the rejected text.
+    rejections: dict[str, int]
+    chunks: int = 0
+    cached_chunks: int = 0
+
+
+class SummaryRecord(StrictModel):
+    title: str | None
+    points: list[SummaryPoint]
+    omitted_items: int = 0
+    rejections: dict[str, int] = Field(default_factory=dict)
+
+
+class ConsolidatedEvidence(StrictModel):
+    items: list[EvidenceItem]
+    rejections: dict[str, int]
+    generated_by: dict[str, str]

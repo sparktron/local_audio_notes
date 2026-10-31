@@ -1,7 +1,8 @@
 # local_audio_notes
 
 Private meeting audio → local transcription and alignment → anonymous speakers →
-local Ollama draft notes → Markdown/JSON. **Scaffold and Phase 1 only.**
+grounded local Ollama evidence → cited draft notes → Markdown/JSON.
+**Phases 1 and 2 implemented** (CLI, SQLite, durable jobs, evidence extraction).
 
 This is a working CLI implementation with tested media handling and mocked inference
 boundaries. Actual model inference, GPU integration, diarization quality and isolated
@@ -10,9 +11,12 @@ Do not treat this scaffold as a finished production service.
 
 Implemented: WAV/M4A/MP3/FLAC imports; preserved originals and SHA-256; local WhisperX
 adapters; local Community-1 diarization; word attribution with Unknown/Uncertain labels;
-strict timed transcript import; extractive, cited Ollama draft notes; private artifacts;
-stage/error metrics and notes-only retries. No web server, database, search or automatic
-speaker identity assignment. See [scope](docs/PLAN.md) and [validation](docs/VALIDATION.md).
+strict timed transcript import; private artifacts. Phase 2 adds a private SQLite store with
+migrations; a durable job queue with cancellation, restart recovery and per-stage metrics;
+hash-verified stage checkpoints so failed or interrupted work resumes instead of restarting;
+two-stage evidence extraction (validated, cited items, then a grounded summary); confirmed
+per-meeting speaker names and corrections. No web server, search or automatic speaker
+identity assignment. See [scope](docs/PLAN.md) and [validation](docs/VALIDATION.md).
 
 ## Ubuntu installation
 
@@ -139,22 +143,55 @@ must match. No alignment model is downloaded automatically on language mismatch.
 
 ## Import, process and export
 
-No web service is launched in Phase 1. The CLI is the supported interface:
+No web service is launched yet. The CLI is the supported interface:
 
 ```bash
 meeting_id=$(.venv/bin/local-audio-notes --config config.toml ingest /absolute/path/meeting.m4a)
+.venv/bin/local-audio-notes --config config.toml meeting-set "$meeting_id" --title "Storage review" --date 2026-10-30
 .venv/bin/local-audio-notes --config config.toml run "$meeting_id"
 .venv/bin/local-audio-notes --config config.toml status "$meeting_id"
 # Output paths:
 printf '%s\n' "data/$meeting_id/notes.md" "data/$meeting_id/notes.json" "data/$meeting_id/transcript.json"
 ```
 
-`notes.md` includes all required note sections, sourced excerpts and an action table.
-Unknown meeting date/participants remain unestablished; ingestion time is not fabricated
-as the meeting date. `notes.json` includes segment IDs and source start/end seconds.
-`transcript.json` contains per-segment and per-word speaker labels/timestamps.
-`verbatim.json` remains separate from notes. Files are already exports; copy them to
-another trusted local location if desired. No external export destination is implemented.
+`run` queues a job and processes it in the foreground. Rerunning resumes: every stage whose
+inputs, settings, models and outputs still verify is reused (`--force` recomputes all).
+To queue work and process it later or in another terminal:
+
+```bash
+.venv/bin/local-audio-notes --config config.toml enqueue "$meeting_id"   # prints a job ID
+.venv/bin/local-audio-notes --config config.toml worker                  # runs queued jobs, then exits
+.venv/bin/local-audio-notes --config config.toml jobs                    # recent jobs and safe errors
+.venv/bin/local-audio-notes --config config.toml cancel JOB_ID           # stops at the next safe point
+.venv/bin/local-audio-notes --config config.toml recover                 # requeue jobs whose worker died
+```
+
+`worker` and `run` recover abandoned jobs automatically before starting. A crash, kill or
+SIGTERM returns a running job to the queue (up to `job_max_attempts`); Ctrl-C cancels it.
+Failed jobs are not retried automatically: fix the cause and `run` again to resume.
+`status` and `jobs` show stage, attempts, durations and safe error text, never transcript
+content, titles or speaker names.
+
+`notes.md` contains the title and date (only if you set them; a model-suggested title is
+labelled), participants (anonymous labels unless confirmed), a cited executive summary,
+key points, decisions, proposals (kept separate from decisions), an action-item table
+(owner and deadline only when spoken in the cited quote; "Said by" is the speaker label,
+never assumed to be the owner), risks and blockers, open questions, follow-ups, source
+references (segment ID, timestamps, speaker, verbatim quote) and counts of model output
+that was rejected or stripped. Inferred items and disputed classifications are marked.
+`notes.json` carries the same items with evidence start/end seconds. `verbatim.json`,
+`transcript.json`, `extraction.json`, `evidence.json` and `summary.json` remain separate.
+
+Confirm speaker names or fix a segment's speaker for this meeting only. Existing notes
+are re-rendered without calling any model:
+
+```bash
+.venv/bin/local-audio-notes --config config.toml speakers "$meeting_id"
+.venv/bin/local-audio-notes --config config.toml speakers "$meeting_id" \
+  --name "Speaker 1=Alice" --assign "s000042=Speaker 2"
+.venv/bin/local-audio-notes --config config.toml export "$meeting_id" --format json \
+  --output /absolute/path/new-file.json   # creates a new 0600 file; never overwrites
+```
 
 Existing transcripts are optional:
 
@@ -180,7 +217,7 @@ UTF-8 TXT is supported for compare mode, not direct alignment: missing time anch
 are not guessed. WhisperBoard export schemas vary; arbitrary vendor JSON, timestamps
 in milliseconds/strings and untimed content are rejected for alignment. Compare mode
 saves an exact comparison, not a diarization/transcription quality score. CLI errors return
-nonzero; Ctrl-C returns 130 and preserves originals/artifacts. Only scratch copies of a
+nonzero; Ctrl-C returns 130, SIGTERM 143; both preserve originals and completed stages. Only scratch copies of a
 failed import are cleaned up; caller-owned recordings are never deleted.
 
 ## Validation and offline use
@@ -219,7 +256,8 @@ same-user filesystem storage remain necessary. Native decoders and libraries are
 OS-sandboxed by the default CLI. Draft classifications can still be wrong despite quote
 validation; review audio before treating extracted commitments as authoritative.
 
-Phase 2 adds SQLite, durable recovery and richer evidence; Phase 3 adds the loopback
-FastAPI UI and speaker corrections; Phase 4 adds search/hardening. These are intentionally
-unimplemented. See [architecture](docs/ARCHITECTURE.md), [security](docs/SECURITY.md),
+Phase 3 adds the loopback FastAPI UI (dashboard, import, transcript viewer, speaker
+correction, export); Phase 4 adds search, optional local embeddings and hardening. These
+are intentionally unimplemented. The SQLite database holds quotes, titles and speaker
+names: protect it like the recordings. See [architecture](docs/ARCHITECTURE.md), [security](docs/SECURITY.md),
 [troubleshooting](docs/TROUBLESHOOTING.md), and [status](docs/STATUS.md).
