@@ -7,7 +7,8 @@
   whole-word owners, settings paths, abandoned-job recovery, worker reload): **229 passed**;
   after the #3 fixes (transcript-bound embeddings, participant filtering before the result
   limit, semantic+category rejection): **232 passed**; after the second #2 fix (notes shown
-  only when they match the last export of current inputs): **233 passed**.
+  only when they match the last export of current inputs): **233 passed**; after the second #3 fixes
+  (items hidden while their consolidation is superseded, trace parser): **235 passed**.
 - New tests: FTS search over transcripts, items and titles; diacritics/case; category, date
   and participant filters (labels, confirmed names, corrections); FTS operators and column
   syntax handled literally; empty queries rejected; highlight markers cannot be forged by
@@ -28,6 +29,11 @@
     no outbound endpoints.
   - Positive control `curl https://example.com` (one deliberate outbound request): flagged,
     including `127.0.0.53:53` (DNS via systemd-resolved) and remote IPv4/IPv6 addresses.
+  - After the PR #3 review: unconnected `sendto` and `sendmsg` destinations are parsed (the
+    first parser skipped them). A loopback-only probe (UDP `sendto` to 127.0.0.2:9 with a
+    forged sockaddr in the payload, `sendmsg` to 127.0.0.3:9, IPv6 `sendto` to ::1:9) was
+    reported clean with exit 0 by the old parser and flagged with exit 1 by the new one;
+    the forged payload was not counted as an endpoint.
 - Benchmarks (`scripts/benchmark_local.py --dir data`, synthetic data, 20 CPUs, SQLite 3.53.1):
   SHA-256 of 1 GiB 2.62 s (391 MiB/s, warm cache), hash-cache hit about 3 µs; FTS5 build of
   200,000 segments 0.82 s, median query 38 ms; numpy cosine search 100,000 × 768 in 0.20 s.

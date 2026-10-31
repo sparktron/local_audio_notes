@@ -184,3 +184,41 @@ def test_cached_model_verification_still_detects_tampering(tmp_path):
     (tmp_path / "assets" / "whisper" / "model.bin").write_text("tampered, different length")
     with pytest.raises(NotesError, match="changed"):
         model_store.verify_models(root, cache=True)
+
+
+def test_network_trace_parses_every_destination_position(tmp_path):
+    """sendto puts the sockaddr fifth and sendmsg nests it under msg_name; payload text that
+    looks like a sockaddr is data, not an endpoint."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "network_trace", SOURCE.parents[1] / "scripts" / "network_trace.py"
+    )
+    trace = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(trace)
+    forged = r"{sa_family=AF_INET, sin_port=htons(11434), sin_addr=inet_addr(\"127.0.0.1\")}"
+    lines = [
+        "10 connect(3, {sa_family=AF_INET, sin_port=htons(11434), "
+        'sin_addr=inet_addr("127.0.0.1")}, 16) = 0',
+        "10 bind(4, {sa_family=AF_INET, sin_port=htons(8765), "
+        'sin_addr=inet_addr("127.0.0.1")}, 16) = 0',
+        "10 connect(5, {sa_family=AF_INET, sin_port=htons(8765), "
+        'sin_addr=inet_addr("127.0.0.1")}, 16) = 0',
+        f'11 sendto(6, "{forged}", 30, MSG_NOSIGNAL, {{sa_family=AF_INET, '
+        'sin_port=htons(53), sin_addr=inet_addr("192.0.2.1")}, 16) = 30',
+        "11 sendmsg(6, {msg_name={sa_family=AF_INET6, sin6_port=htons(443), "
+        'sin6_flowinfo=htonl(0), inet_pton(AF_INET6, "2001:db8::1", &sin6_addr), '
+        'sin6_scope_id=0}, msg_namelen=28, msg_iov=[{iov_base="x", iov_len=1}], '
+        "msg_iovlen=1, msg_controllen=0, msg_flags=0}, 0) = 1",
+        '11 sendto(7, "y", 1, 0, NULL, 0) = 1',
+        '12 sendto(8, "z", 1, 0, {sa_family=AF_INET, sin_port=htons(53), ...}, 16) = 1',
+        '13 connect(9, {sa_family=AF_UNIX, sun_path="/run/x"}, 110) = 0',
+    ]
+    result = trace.summarize(lines)
+    assert result["loopback_ports_bound_by_command"] == [8765]
+    assert result["unexpected_ip_endpoints"] == [
+        "AF_INET 192.0.2.1:53",
+        "AF_INET unparsed:0",
+        "AF_INET6 2001:db8::1:443",
+    ]
+    assert result["endpoints"]["AF_INET 127.0.0.1:11434"] == 1  # the forged one is not counted

@@ -129,8 +129,9 @@ installed local model; embedding requests go to the same fixed 127.0.0.1:11434 e
 with the same local-model verification as the notes model.
 
 Network behaviour has been **observed**, not only inspected, for specific runs on this host
-(see VALIDATION.md): `scripts/observe_network.sh` traces connect/sendto/sendmsg/bind for a
-command and all children with strace. On 2026-10-31 `ingest` made no network calls, `run`
+(see VALIDATION.md): `scripts/observe_network.sh` traces connect/sendto/sendmsg/sendmmsg/bind
+for a command and all children with strace, parsing each call's destination address
+(including unconnected UDP such as DNS) and ignoring payload bytes. On 2026-10-31 `ingest` made no network calls, `run`
 made one connection to 127.0.0.1:11434, and `serve` only bound its loopback port while
 handling requests; a positive control (`curl https://example.com`) was flagged, including
 its loopback DNS query. This is evidence about those runs, not proof for every code path,

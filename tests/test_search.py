@@ -303,3 +303,34 @@ def test_semantic_search_with_category_is_rejected(indexed, settings):
     _, connection = indexed
     with pytest.raises(NotesError, match="clear the category"):
         search(connection, settings, "storage", semantic=True, category="action")
+
+
+def test_items_from_a_superseded_consolidation_are_not_returned(
+    audio, settings, mocked, monkeypatch
+):
+    """A rerun that changes the transcript and fails during extraction leaves the old item
+    rows behind; their evidence IDs would be joined to the new segments."""
+    from conftest import TURNS
+
+    import local_audio_notes.pipeline as pipeline
+    from local_audio_notes.schemas import SpeakerTurn
+
+    calls, ollama = mocked
+    identifier = ingest(audio, settings)
+    process(settings, identifier)
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        assert any(h.kind == "item" for h in search(connection, settings, "migration"))
+    solo = [SpeakerTurn(start=t.start, end=t.end, speaker="solo") for t in TURNS]
+    monkeypatch.setattr(pipeline, "diarize", lambda *args: solo)
+    ollama.fail_on_call = len(ollama.payloads) + 1
+    with pytest.raises(NotesError, match="extracting"):
+        process(settings, identifier, force=True)
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        assert connection.execute("SELECT count(*) FROM item_search").fetchone()[0]
+        hits = search(connection, settings, "migration")
+        assert hits and all(h.kind == "transcript" for h in hits)
+        assert not search(connection, settings, "migration", category="action")
+    ollama.fail_on_call = None
+    process(settings, identifier)
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        assert any(h.kind == "item" for h in search(connection, settings, "migration"))

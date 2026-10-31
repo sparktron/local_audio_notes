@@ -205,7 +205,11 @@ def search(
         "SELECT i.meeting_id, i.item_id, i.category, "
         + snippet.format(table="item_search")
         + ", bm25(item_search), m.title, m.meeting_date FROM item_search i "
-        "JOIN meetings m ON m.id = i.meeting_id WHERE item_search MATCH ?"
+        "JOIN meetings m ON m.id = i.meeting_id "
+        # Items only while their consolidation is current: a rerun that changed the
+        # transcript drops that checkpoint, and old evidence IDs would point at new segments.
+        "JOIN checkpoints c ON c.meeting_id = i.meeting_id AND c.stage = 'consolidating' "
+        "WHERE item_search MATCH ?"
         + (" AND i.category = ?" if category else "")
         + dates
         + " ORDER BY bm25(item_search)",
