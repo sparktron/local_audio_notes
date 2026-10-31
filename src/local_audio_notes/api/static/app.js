@@ -71,7 +71,22 @@ function importForm() {
   });
 }
 
+function seekToAnchor() {
+  // Search results link to #s000123: position the player there without autoplaying.
+  const player = document.getElementById("player");
+  const id = decodeURIComponent(window.location.hash.slice(1));
+  if (!player || !/^s\d{6,}$/.test(id)) return;
+  const link = document.querySelector(`tr[id="${id}"] a.seek[data-start]`);
+  const start = link ? Number(link.dataset.start) : NaN;
+  if (Number.isFinite(start)) {
+    const apply = () => { player.currentTime = start; };
+    if (player.readyState >= 1) apply();
+    else player.addEventListener("loadedmetadata", apply, { once: true });
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   seekLinks();
+  seekToAnchor();
   importForm();
 });

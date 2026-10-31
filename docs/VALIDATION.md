@@ -1,5 +1,35 @@
 # Validation
 
+## Phase 4 — 2026-10-31
+
+- `pytest -q`: **220 passed, 1 skipped**; Ruff check and format clean.
+- New tests: FTS search over transcripts, items and titles; diacritics/case; category, date
+  and participant filters (labels, confirmed names, corrections); FTS operators and column
+  syntax handled literally; empty queries rejected; highlight markers cannot be forged by
+  content; `reindex` rebuild and busy-meeting skip; semantic search with a deterministic fake
+  embedder (stored vectors, ranking, checkpoint reuse), pure-Python similarity fallback; CLI
+  and web search (escaping, highlighting, timestamp links, validation); static checks over
+  every source file (no shell, eval/exec, os.system, pickle; subprocess argument arrays) and
+  web assets (no external URLs, inline script or innerHTML); Python audit-hook recording of
+  a full mocked run plus web pages and search (only 127.0.0.1:11434 attempted); real
+  `OllamaClient` targets only that endpoint; symlinked meeting directories refused; private
+  database sidecars; hash cache hits, invalidation on content and metadata change, corrupt
+  cache tolerance, cached model verification still detecting tampering.
+- Network observation with `scripts/observe_network.sh` (strace 5.16, this host, no Ollama
+  running, no models installed):
+  - `ingest tone.m4a`: no network system calls at all.
+  - `run <id>`: one connect to `127.0.0.1:11434`, then the expected preflight failure.
+  - `serve --port 8798` for 10 s while answering 3 curl requests: only bound 127.0.0.1:8798;
+    no outbound endpoints.
+  - Positive control `curl https://example.com` (one deliberate outbound request): flagged,
+    including `127.0.0.53:53` (DNS via systemd-resolved) and remote IPv4/IPv6 addresses.
+- Benchmarks (`scripts/benchmark_local.py --dir data`, synthetic data, 20 CPUs, SQLite 3.53.1):
+  SHA-256 of 1 GiB 2.62 s (391 MiB/s, warm cache), hash-cache hit about 3 µs; FTS5 build of
+  200,000 segments 0.82 s, median query 38 ms; numpy cosine search 100,000 × 768 in 0.20 s.
+
+Not demonstrated in Phase 4: a real embedding model, search relevance on real meetings,
+observation of real inference runs, cold-disk hashing speed.
+
 ## Phase 3 — 2026-10-31
 
 - `pytest -q`: **149 passed, 1 skipped**. Ruff check and format clean.

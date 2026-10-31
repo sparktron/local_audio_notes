@@ -1,7 +1,7 @@
 # Status — 2026-10-31
 
 Branches (stacked PRs): `phases-1-2` (Phase 1 + Phase 2, PR #1 → master), `phase-3`
-(PR → `phases-1-2`). Phase 1 was written in a separate Codex session.
+(PR #2 → `phases-1-2`), `phase-4` (PR → `phase-3`). Phase 1 was written in a separate Codex session.
 
 ## Current state
 
@@ -18,11 +18,14 @@ Branches (stacked PRs): `phases-1-2` (Phase 1 + Phase 2, PR #1 → master), `pha
   meeting page with audio, notes, action items, speaker names and corrections, exports,
   settings. Sign-in token, Host/Origin/CSRF checks, strict CSP; processing in a `worker`
   subprocess.
-- 149 tests pass, 1 opt-in integration test skipped; Ruff check/format clean. See VALIDATION.md.
+- Phase 4: SQLite FTS5 search (CLI, web) with participant/category/date filters and
+  timestamp links; optional local-embedding semantic search; `reindex`; stat-keyed hash cache;
+  strace network observation script; synthetic benchmark script; hardening tests.
+- 220 tests pass, 1 opt-in integration test skipped; Ruff check/format clean. See VALIDATION.md.
 
 ## Active work
 
-Phase 4 (search, optional local embeddings, security tests, offline validation, performance).
+None. All four requested phases are implemented on stacked branches awaiting review.
 
 ## Known limitations and unverified
 
@@ -37,7 +40,10 @@ Phase 4 (search, optional local embeddings, security tests, offline validation, 
 - Recovery assumes a single host and a local filesystem with working `flock`.
 - Cancellation cannot interrupt a single native call (one transcription window, one LLM request,
   whole-file diarization).
-- No retention policy or deletion; no encryption at rest; search not implemented.
+- No retention policy or deletion; no encryption at rest.
+- Semantic search tested only with a deterministic fake embedder; no real embedding model
+  has been run. Network observation covers ingest, a preflight-failing run and serve on this
+  host, not real inference.
 - The web UI was exercised with a real server and curl, and with TestClient; it has not been
   checked visually in a browser or for accessibility.
 - Earlier unverified items remain: GPU inference, offline namespace operation, native egress.
@@ -46,4 +52,5 @@ Phase 4 (search, optional local embeddings, security tests, offline validation, 
 
 Review and merge or push `phases-1-2` when ready. Install the inference stack and
 approved models, select an installed local model, and run the opt-in integration test on
-consented audio to obtain real stage timings and review rejection counts. Then Phase 3.
+consented audio to obtain real stage timings and review rejection counts, observing that run
+with `scripts/observe_network.sh`.

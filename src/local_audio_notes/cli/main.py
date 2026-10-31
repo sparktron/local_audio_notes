@@ -37,7 +37,9 @@ from local_audio_notes.models import (
     register_model,
     verify_models,
 )
-from local_audio_notes.pipeline import export_notes, get_meeting, verified_checkpoint
+from local_audio_notes.pipeline import export_notes, get_meeting, reindex, verified_checkpoint
+from local_audio_notes.schemas import CATEGORIES
+from local_audio_notes.search.index import MARK_END, MARK_START, search
 from local_audio_notes.security.runtime import enable_runtime, isolated_network
 from local_audio_notes.speakers import mapping
 from local_audio_notes.storage.db import connect, transaction
@@ -57,7 +59,10 @@ def parser() -> argparse.ArgumentParser:
     cli.add_argument("--config", type=Path, help="TOML configuration (no automatic .env loading)")
     sub = cli.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="Inspect installed tools without changing the machine")
-    sub.add_parser("models-check", help="Verify required local model files and hashes")
+    check = sub.add_parser("models-check", help="Verify required local model files and hashes")
+    check.add_argument(
+        "--full", action="store_true", help="Rehash every file even if the hash cache matches"
+    )
     sub.add_parser("ollama-models", help="List installed models from localhost only")
     offline = sub.add_parser("offline-check", help="Enable application guards; check OS isolation")
     offline.add_argument("--enforced", action="store_true")
@@ -104,6 +109,20 @@ def parser() -> argparse.ArgumentParser:
         "--assign", type=_pair, action="append", default=[], metavar="'s000123=Speaker N'"
     )
     speakers.add_argument("--unassign", action="append", default=[], metavar="s000123")
+    finder = sub.add_parser("search", help="Search titles, transcripts and extracted items")
+    finder.add_argument("query")
+    finder.add_argument("--participant", default="", help="Speaker label or confirmed name")
+    finder.add_argument(
+        "--category", default="", choices=["", *CATEGORIES], help="Only extracted items"
+    )
+    finder.add_argument("--from", dest="date_from", default="", help="Meeting date YYYY-MM-DD")
+    finder.add_argument("--to", dest="date_to", default="", help="Meeting date YYYY-MM-DD")
+    finder.add_argument("--semantic", action="store_true", help="Local embedding similarity")
+    finder.add_argument("--limit", type=int, default=20)
+    rebuild = sub.add_parser("reindex", help="Rebuild search indexes from verified artifacts")
+    rebuild.add_argument(
+        "--embeddings", action="store_true", help="Also recompute local embeddings"
+    )
     web = sub.add_parser("serve", help="Run the web interface on 127.0.0.1 only")
     web.add_argument("--port", type=int, default=8765)
     export = sub.add_parser("export", help="Re-render notes; optionally copy them to a new file")
@@ -200,6 +219,13 @@ def _rerender(settings: Settings, connection: sqlite3.Connection, meeting_id: st
     with exclusive_lock(lock_path(settings, meeting_id)):
         export_notes(settings, connection, meeting_id)
     return True
+
+
+def _iso_date(value: str) -> str:
+    try:
+        return date.fromisoformat(value).isoformat()
+    except ValueError:
+        raise NotesError("Date must be YYYY-MM-DD") from None
 
 
 def _meeting_set(args: argparse.Namespace, settings: Settings, connection: Any) -> None:
@@ -312,10 +338,37 @@ def _queue_command(args: argparse.Namespace, settings: Settings) -> int:
             _speakers(args, settings, connection)
         elif args.command == "export":
             _export(args, settings, connection)
+        elif args.command == "search":
+            for date_value in (args.date_from, args.date_to):
+                if date_value:
+                    _iso_date(date_value)
+            hits = search(
+                connection,
+                settings,
+                args.query,
+                participant=args.participant,
+                category=args.category,
+                date_from=args.date_from,
+                date_to=args.date_to,
+                semantic=args.semantic,
+                embedder=OllamaClient(settings) if args.semantic else None,
+                limit=args.limit,
+            )
+            for hit in hits:
+                value = hit.as_dict()
+                value["snippet"] = value["snippet"].replace(MARK_START, "[").replace(MARK_END, "]")
+                print(json.dumps(value, ensure_ascii=False))
+        elif args.command == "reindex":
+            embedder = OllamaClient(settings) if args.embeddings else None
+            if args.embeddings and not settings.embedding_model:
+                raise NotesError("Set embedding_model to an installed local model first")
+            print(json.dumps(reindex(settings, connection, embedder)))
     return 0
 
 
 QUEUE_COMMANDS = {
+    "search",
+    "reindex",
     "enqueue",
     "worker",
     "jobs",
@@ -370,7 +423,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command in QUEUE_COMMANDS:
             return _queue_command(args, settings)
         elif args.command == "models-check":
-            print(json.dumps({"verified": list(verify_models(settings.models_dir))}))
+            cache = settings.hash_cache and not args.full
+            print(json.dumps({"verified": list(verify_models(settings.models_dir, cache=cache))}))
         elif args.command == "ollama-models":
             for model in OllamaClient(settings).models():
                 print(

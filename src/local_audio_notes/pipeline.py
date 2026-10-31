@@ -36,9 +36,16 @@ from local_audio_notes.schemas import (
     SummaryRecord,
     Transcript,
 )
+from local_audio_notes.search.index import (
+    EMBED_VERSION,
+    embed_segments,
+    index_items,
+    index_segments,
+)
 from local_audio_notes.speakers.mapping import load_view
 from local_audio_notes.storage.db import now, transaction
-from local_audio_notes.storage.files import atomic_write, meeting_dir, sha256, write_json
+from local_audio_notes.storage.files import HashCache, atomic_write, meeting_dir, write_json
+from local_audio_notes.storage.locking import try_lock
 from local_audio_notes.transcription.whisperx_backend import WhisperXBackend
 
 STAGES = (
@@ -74,13 +81,16 @@ def get_meeting(connection: sqlite3.Connection, identifier: str) -> dict[str, An
     return dict(row)
 
 
-def verify_originals(directory: Path, meeting: Mapping[str, Any]) -> None:
+def verify_originals(
+    directory: Path, meeting: Mapping[str, Any], hashes: HashCache | None = None
+) -> None:
+    hashes = hashes or HashCache(None)
     pairs = [("original.audio", meeting["audio_sha256"], "Original recording")]
     if meeting["attachment_sha256"]:
         pairs.append(("attached.transcript", meeting["attachment_sha256"], "Attached transcript"))
     for name, expected, label in pairs:
         path = directory / name
-        if path.is_symlink() or not path.is_file() or sha256(path) != expected:
+        if path.is_symlink() or not path.is_file() or hashes.sha256(path) != expected:
             raise NotesError(f"{label} integrity verification failed")
 
 
@@ -90,7 +100,9 @@ def verified_checkpoint(
     directory: Path,
     stage: str,
     fingerprint: str | None = None,
+    hashes: HashCache | None = None,
 ) -> dict[str, str] | None:
+    hashes = hashes or HashCache(None)
     row = connection.execute(
         "SELECT fingerprint, artifacts FROM checkpoints WHERE meeting_id = ? AND stage = ?",
         (meeting_id, stage),
@@ -100,7 +112,7 @@ def verified_checkpoint(
     artifacts: dict[str, str] = json.loads(row[1])
     for name, expected in artifacts.items():
         path = directory / name
-        if path.is_symlink() or not path.is_file() or sha256(path) != expected:
+        if path.is_symlink() or not path.is_file() or hashes.sha256(path) != expected:
             return None
     return artifacts
 
@@ -139,6 +151,7 @@ class Run:
     outputs: dict[str, dict[str, str]] = field(default_factory=dict)
     paths: dict[str, Path] = field(default_factory=dict)
     models: dict[str, str] = field(default_factory=dict)
+    hashes: HashCache = field(default_factory=lambda: HashCache(None))
     _backend: WhisperXBackend | None = None
 
     def artifact(self, name: str) -> Path:
@@ -168,7 +181,12 @@ class Run:
             reused = None
             if not self.force and fingerprint is not None:
                 reused = verified_checkpoint(
-                    self.connection, self.meeting["id"], self.directory, name, fingerprint
+                    self.connection,
+                    self.meeting["id"],
+                    self.directory,
+                    name,
+                    fingerprint,
+                    self.hashes,
                 )
             if reused is not None:
                 state, self.outputs[name] = "skipped", reused
@@ -179,7 +197,7 @@ class Run:
                 (self.meeting["id"], name),
             )
             names, detail = produce()
-            artifacts = {n: sha256(self.artifact(n)) for n in names}
+            artifacts = {n: self.hashes.sha256(self.artifact(n)) for n in names}
             self.connection.execute(
                 "INSERT INTO checkpoints VALUES (?, ?, ?, ?, ?)",
                 (self.meeting["id"], name, fingerprint or "", json.dumps(artifacts), now()),
@@ -223,6 +241,7 @@ def store_segments(connection: sqlite3.Connection, meeting_id: str, transcript: 
                 for i, s in enumerate(transcript.segments)
             ],
         )
+        index_segments(connection, meeting_id, transcript)
 
 
 def store_items(connection: sqlite3.Connection, meeting_id: str, items: list[EvidenceItem]) -> None:
@@ -249,6 +268,7 @@ def store_items(connection: sqlite3.Connection, meeting_id: str, items: list[Evi
                     for n, e in enumerate(item.evidence)
                 ],
             )
+        index_items(connection, meeting_id, items)
 
 
 def export_notes(settings: Settings, connection: sqlite3.Connection, meeting_id: str) -> list[str]:
@@ -398,7 +418,9 @@ def _audio_stages(run: Run, mode: str) -> None:
     )
 
 
-def _notes_stages(run: Run, client: OllamaClient, model_key: str) -> None:
+def _notes_stages(
+    run: Run, client: OllamaClient, model_key: str, embed_key: str | None = None
+) -> None:
     settings, meeting_id = run.settings, run.meeting["id"]
     transcript_sha = run.outputs["attributing"]["transcript.json"]
     transcript = Transcript.model_validate_json(run.read("attributing", "transcript.json"))
@@ -472,6 +494,23 @@ def _notes_stages(run: Run, client: OllamaClient, model_key: str) -> None:
     )
     # Always re-rendered: titles and confirmed speaker names can change without reprocessing.
     run.stage("exporting", None, lambda: (export_notes(settings, run.connection, meeting_id), {}))
+    if embed_key is None:
+        return
+
+    def indexing() -> tuple[list[str], dict[str, Any]]:
+        count = embed_segments(
+            run.connection,
+            meeting_id,
+            transcript,
+            client,
+            settings.embedding_model,
+            embed_key,
+            run.check,
+        )
+        return [], {"vectors": count}
+
+    # Optional semantic index after the notes exist, so an embedding failure never costs notes.
+    run.stage("indexing", digest(EMBED_VERSION, transcript_sha, embed_key), indexing)
 
 
 def run_job(
@@ -483,23 +522,80 @@ def run_job(
     """Execute one claimed job. The caller holds the meeting's processing lock."""
     meeting = get_meeting(connection, job["meeting_id"])
     directory = meeting_dir(settings.data_dir, meeting["id"])
-    verify_originals(directory, meeting)
     if job["mode"] in {"align", "compare"} and not meeting["attachment_kind"]:
         raise NotesError("This mode requires an attached transcript")
-    # Check the LLM before spending hours on audio stages.
-    client = OllamaClient(settings)
-    model_key = client.require_local_model()
-    run = Run(settings, connection, job["id"], meeting, directory, bool(job["force"]), check)
-    if job["kind"] == "full":
-        run.paths = verify_models(settings.models_dir)
-        run.models = model_fingerprints(settings.models_dir)
-        _audio_stages(run, job["mode"])
-    else:
-        found = verified_checkpoint(connection, meeting["id"], directory, "attributing")
-        if found is None:
-            raise NotesError(
-                "Attributed transcript missing or failed integrity verification; "
-                "run full processing"
+    hashes = HashCache(settings.data_dir / ".hash-cache.json" if settings.hash_cache else None)
+    try:
+        verify_originals(directory, meeting, hashes)
+        # Check local models before spending hours on audio stages.
+        client = OllamaClient(settings)
+        model_key = client.require_local_model()
+        embed_key = (
+            client.require_local_model(settings.embedding_model)
+            if settings.embedding_model
+            else None
+        )
+        run = Run(settings, connection, job["id"], meeting, directory, bool(job["force"]), check)
+        run.hashes = hashes
+        if job["kind"] == "full":
+            run.paths = verify_models(settings.models_dir, cache=settings.hash_cache)
+            run.models = model_fingerprints(settings.models_dir)
+            _audio_stages(run, job["mode"])
+        else:
+            found = verified_checkpoint(
+                connection, meeting["id"], directory, "attributing", hashes=hashes
             )
-        run.outputs["attributing"] = found
-    _notes_stages(run, client, model_key)
+            if found is None:
+                raise NotesError(
+                    "Attributed transcript missing or failed integrity verification; "
+                    "run full processing"
+                )
+            run.outputs["attributing"] = found
+        _notes_stages(run, client, model_key, embed_key)
+    finally:
+        hashes.save()
+
+
+def reindex(
+    settings: Settings,
+    connection: sqlite3.Connection,
+    embedder: OllamaClient | None = None,
+) -> dict[str, int]:
+    """Rebuild search indexes from verified artifacts (and embeddings when an embedder is
+    given). Meetings with a running job are skipped, never waited on."""
+    counts = {"indexed": 0, "embedded": 0, "busy": 0, "unprocessed": 0}
+    embed_key = (
+        embedder.require_local_model(settings.embedding_model)
+        if embedder and settings.embedding_model
+        else None
+    )
+    meetings = [r[0] for r in connection.execute("SELECT id FROM meetings ORDER BY imported_at")]
+    for meeting_id in meetings:
+        directory = meeting_dir(settings.data_dir, meeting_id)
+        with try_lock(directory / ".processing.lock") as acquired:
+            if not acquired:
+                counts["busy"] += 1
+                continue
+            found = verified_checkpoint(connection, meeting_id, directory, "attributing")
+            if found is None:
+                counts["unprocessed"] += 1
+                continue
+            transcript = Transcript.model_validate_json((directory / "transcript.json").read_text())
+            store_segments(connection, meeting_id, transcript)
+            if verified_checkpoint(connection, meeting_id, directory, "consolidating"):
+                evidence = ConsolidatedEvidence.model_validate_json(
+                    (directory / "evidence.json").read_text()
+                )
+                store_items(connection, meeting_id, evidence.items)
+            counts["indexed"] += 1
+            if embed_key and embedder:
+                embed_segments(
+                    connection,
+                    meeting_id,
+                    transcript,
+                    embedder,
+                    settings.embedding_model,
+                    embed_key,
+                )
+                counts["embedded"] += 1
+    return counts

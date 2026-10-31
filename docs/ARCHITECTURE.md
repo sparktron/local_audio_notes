@@ -1,10 +1,11 @@
-# Architecture — Phases 1 to 3
+# Architecture — Phases 1 to 4
 
 A local CLI and a loopback-only web interface over one durable SQLite job queue. `cli` loads
 validated TOML configuration and enables runtime privacy controls before any ML imports.
 Design decisions: [ADR-0001](decisions/0001-phase1-extractive-drafts.md),
 [ADR-0002](decisions/0002-phase2-evidence-and-durable-jobs.md),
-[ADR-0003](decisions/0003-phase3-loopback-web-interface.md).
+[ADR-0003](decisions/0003-phase3-loopback-web-interface.md),
+[ADR-0004](decisions/0004-phase4-search-and-hardening.md).
 
 ```mermaid
 flowchart LR
@@ -55,14 +56,19 @@ flowchart LR
   bound to the attributed transcript's hash. Applied at render time only. A future
   consent-based enrollment would add its own tables; nothing infers identity.
 - `jobs.queue`: enqueue (idempotent per meeting), claim, execute, cancel, recover, describe.
-- `pipeline`: checkpointed stage executor and `export_notes`.
-- `storage`: private directories and atomic fsync/rename artifacts (`files`), advisory
+- `pipeline`: checkpointed stage executor, `export_notes` and `reindex`. Storing segments
+  and items also refreshes their FTS rows; the optional `indexing` stage (after `exporting`)
+  stores local embeddings when `embedding_model` is set.
+- `search.index`: FTS5 indexing, literal query building, filtered search over titles,
+  items and segments, optional embedding similarity (numpy or pure Python).
+- `storage`: private directories, atomic fsync/rename artifacts and the stat-keyed
+  `HashCache` (`files`), advisory
   flock (`locking`), SQLite connection and migrations (`db`, `migrations`).
 
 ## SQLite
 
 `data/notes.sqlite3`, mode 0600, WAL, `synchronous=FULL`, foreign keys on,
-`trusted_schema=OFF`, STRICT tables, forward-only migrations (`PRAGMA user_version`).
+`trusted_schema=OFF`, STRICT tables, forward-only migrations (`PRAGMA user_version`; 2 so far).
 
 | Table | Holds |
 | --- | --- |
@@ -74,9 +80,12 @@ flowchart LR
 | extraction_chunks | schema-valid raw Stage 1 responses keyed by prompt/model/payload hash |
 | items, item_evidence | consolidated evidence items and their verbatim quotes |
 | speaker_names, speaker_corrections | confirmed names / segment reassignments per transcript hash |
+| segment_search, item_search (FTS5) | segment text and item text for search (migration 2) |
+| segment_embeddings | optional unit float32 vectors keyed by embedding model name+digest |
 
-Transcript text lives in artifacts; quotes in `items`/`item_evidence` and cached chunk
-responses are transcript excerpts, so the database is as sensitive as the transcripts.
+Since Phase 4 the search tables hold full transcript text; artifacts remain the source of
+truth and `reindex` rebuilds the tables from them. The database is as sensitive as the
+transcripts.
 
 ## Jobs, checkpoints and recovery
 
@@ -102,8 +111,7 @@ chunks; a native call in progress is not interrupted.
 counts), `evidence.json` (consolidated items), `summary.json`, `notes.md`, `notes.json`.
 All private, none committed, none deleted automatically.
 
-## Deferred
+## Not implemented
 
-Phase 4: SQLite FTS, optional local embeddings,
-broader OS sandbox validation, measured performance work. Retention policies and deletion
-are not implemented.
+Retention policies and deletion; encryption at rest; multi-host workers; real-model quality
+and performance validation (needs installed models and consented, annotated audio).
