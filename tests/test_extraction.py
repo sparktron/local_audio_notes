@@ -208,3 +208,24 @@ def test_short_identical_quotes_in_different_segments_stay_separate():
         for s in segments
     ]
     assert len(consolidate(found, segments)) == 2
+
+
+@pytest.mark.parametrize(
+    "owner, quotes",
+    [
+        ("Al", [("s000002", "Alice will write the migration by Friday.")]),
+        # A phrase may not be stitched together from two separate quotes.
+        ("Friday Bob", [("s000002", "by Friday."), ("s000003", "Bob will review it")]),
+    ],
+)
+def test_owner_must_be_whole_words_in_one_quote(transcript, owner, quotes):
+    result, reasons = check(item("action", "Write the migration.", quotes, owner), transcript)
+    assert "unsupported_owner" in reasons and result.owner is None
+
+
+def test_deadline_whole_word_match_kept(transcript):
+    raw = item(
+        "action", "x", [("s000003", "Bob will review it by November 6.")], "bob", "november 6"
+    )
+    result, reasons = check(raw, transcript)
+    assert reasons == [] and (result.owner, result.deadline) == ("Bob", "November 6")

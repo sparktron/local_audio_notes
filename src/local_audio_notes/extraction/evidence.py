@@ -134,7 +134,10 @@ def validate_item(
             reasons.append("pronoun_owner")
             value = None
         else:
-            value = locate(value, support)
+            # Whole words inside one cited quote: no partial names, no phrase spanning quotes.
+            value = next(
+                (v for e in evidence if (v := locate(value, e.quote, whole_words=True))), None
+            )
             if value is None:
                 reasons.append(f"unsupported_{name}")
         fields[name] = value
