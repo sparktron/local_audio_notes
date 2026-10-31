@@ -44,7 +44,13 @@ from local_audio_notes.search.index import (
 )
 from local_audio_notes.speakers.mapping import load_view, transcript_labels
 from local_audio_notes.storage.db import now, transaction
-from local_audio_notes.storage.files import HashCache, atomic_write, meeting_dir, write_json
+from local_audio_notes.storage.files import (
+    HashCache,
+    atomic_write,
+    meeting_dir,
+    sha256,
+    write_json,
+)
 from local_audio_notes.storage.locking import try_lock
 from local_audio_notes.transcription.whisperx_backend import WhisperXBackend
 
@@ -235,7 +241,7 @@ class Run:
                         (self.meeting["id"], stale),
                     )
             self.connection.execute(
-                "INSERT INTO checkpoints VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO checkpoints VALUES (?, ?, ?, ?, ?)",
                 (self.meeting["id"], name, fingerprint or "", json.dumps(artifacts), now()),
             )
             self.outputs[name] = artifacts
@@ -315,7 +321,8 @@ def store_items(connection: sqlite3.Connection, meeting_id: str, items: list[Evi
 def export_notes(settings: Settings, connection: sqlite3.Connection, meeting_id: str) -> list[str]:
     """Render notes.md/notes.json from verified artifacts and current speaker mappings.
 
-    Callers outside a job must hold the meeting's processing lock.
+    Records the exporting checkpoint so readers can tell these files from leftovers of an
+    earlier run. Callers outside a job must hold the meeting's processing lock.
     """
     meeting = get_meeting(connection, meeting_id)
     directory = meeting_dir(settings.data_dir, meeting_id)
@@ -340,7 +347,12 @@ def export_notes(settings: Settings, connection: sqlite3.Connection, meeting_id:
             meeting, transcript, evidence.items, summary, evidence.rejections, view, generated_by
         ),
     )
-    return ["notes.md", "notes.json"]
+    names = ["notes.md", "notes.json"]
+    connection.execute(
+        "INSERT OR REPLACE INTO checkpoints VALUES (?, 'exporting', '', ?, ?)",
+        (meeting_id, json.dumps({n: sha256(directory / n) for n in names}), now()),
+    )
+    return names
 
 
 def _audio_stages(run: Run, mode: str) -> None:

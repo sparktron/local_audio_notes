@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from local_audio_notes.api import app as web
 from local_audio_notes.config import load_settings
+from local_audio_notes.errors import NotesError
 from local_audio_notes.jobs import queue
 from local_audio_notes.storage.db import connect
 
@@ -363,4 +364,37 @@ def test_stale_notes_hidden_after_transcript_changes(client, settings, audio, mo
             "DELETE FROM checkpoints WHERE meeting_id = ? AND stage = 'summarizing'", (identifier,)
         )
     page = client.get(f"/meetings/{identifier}").text
-    assert "earlier" in page and "Executive summary" not in page
+    assert "do not match" in page and "Executive summary" not in page
+
+
+def test_notes_left_by_a_run_that_stopped_before_exporting_are_hidden(
+    client, settings, audio, mocked, monkeypatch
+):
+    """A rerun that changes the transcript, summarizes, then dies before exporting leaves
+    valid summary checkpoints next to the previous run's notes.json."""
+    from conftest import TURNS
+
+    import local_audio_notes.pipeline as pipeline
+    from local_audio_notes.schemas import SpeakerTurn
+
+    identifier = imported(client, settings, audio, process=True)
+    run_queue(settings)
+    before = (settings.data_dir / identifier / "notes.json").read_bytes()
+    assert "Executive summary" in client.get(f"/meetings/{identifier}").text
+    solo = [SpeakerTurn(start=t.start, end=t.end, speaker="solo") for t in TURNS]
+    monkeypatch.setattr(pipeline, "diarize", lambda *args: solo)
+
+    def crash(*args):
+        raise RuntimeError("worker died")
+
+    real = pipeline.export_notes
+    monkeypatch.setattr(pipeline, "export_notes", crash)
+    with pytest.raises(NotesError):
+        queue.process(settings, identifier, force=True)
+    assert (settings.data_dir / identifier / "notes.json").read_bytes() == before
+    page = client.get(f"/meetings/{identifier}").text
+    assert "do not match" in page and "Executive summary" not in page
+    monkeypatch.setattr(pipeline, "export_notes", real)
+    queue.process(settings, identifier)
+    page = client.get(f"/meetings/{identifier}").text
+    assert "do not match" not in page and "Executive summary" in page

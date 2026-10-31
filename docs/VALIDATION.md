@@ -6,7 +6,8 @@
   review fixes from #1 and #2 (dependent-checkpoint invalidation, word-level speaker labels,
   whole-word owners, settings paths, abandoned-job recovery, worker reload): **229 passed**;
   after the #3 fixes (transcript-bound embeddings, participant filtering before the result
-  limit, semantic+category rejection): **232 passed**.
+  limit, semantic+category rejection): **232 passed**; after the second #2 fix (notes shown
+  only when they match the last export of current inputs): **233 passed**.
 - New tests: FTS search over transcripts, items and titles; diacritics/case; category, date
   and participant filters (labels, confirmed names, corrections); FTS operators and column
   syntax handled literally; empty queries rejected; highlight markers cannot be forged by

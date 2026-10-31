@@ -21,7 +21,7 @@ Branches (stacked PRs): `phases-1-2` (Phase 1 + Phase 2, PR #1 → master), `pha
 - Phase 4: SQLite FTS5 search (CLI, web) with participant/category/date filters and
   timestamp links; optional local-embedding semantic search; `reindex`; stat-keyed hash cache;
   strace network observation script; synthetic benchmark script; hardening tests.
-- 232 tests pass, 1 opt-in integration test skipped (after the PR #1–#3 review fixes); Ruff check/format clean. See VALIDATION.md.
+- 233 tests pass, 1 opt-in integration test skipped (after the PR #1–#3 review fixes); Ruff check/format clean. See VALIDATION.md.
 
 ## Active work
 
