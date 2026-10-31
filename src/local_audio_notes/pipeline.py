@@ -36,7 +36,7 @@ from local_audio_notes.schemas import (
     SummaryRecord,
     Transcript,
 )
-from local_audio_notes.speakers.mapping import load_view
+from local_audio_notes.speakers.mapping import load_view, transcript_labels
 from local_audio_notes.storage.db import now, transaction
 from local_audio_notes.storage.files import atomic_write, meeting_dir, sha256, write_json
 from local_audio_notes.transcription.whisperx_backend import WhisperXBackend
@@ -52,6 +52,30 @@ STAGES = (
     "summarizing",
     "exporting",
 )
+# Direct consumers of each stage's artifacts.
+CONSUMERS = {
+    "normalizing": ("transcribing", "aligning", "diarizing"),
+    "transcribing": ("aligning",),
+    "aligning": ("attributing",),
+    "diarizing": ("attributing",),
+    "attributing": ("extracting",),
+    "extracting": ("consolidating",),
+    "consolidating": ("summarizing",),
+    "summarizing": ("exporting",),
+}
+
+
+def dependents(stage: str) -> set[str]:
+    found: set[str] = set()
+    pending = list(CONSUMERS.get(stage, ()))
+    while pending:
+        current = pending.pop()
+        if current not in found:
+            found.add(current)
+            pending.extend(CONSUMERS.get(current, ()))
+    return found
+
+
 VERSIONS = {
     "normalizing": "ffmpeg-pcm16k-mono-v1",
     "transcribing": "whisperx-windows-v1",
@@ -173,6 +197,10 @@ class Run:
             if reused is not None:
                 state, self.outputs[name] = "skipped", reused
                 return
+            previous = self.connection.execute(
+                "SELECT artifacts FROM checkpoints WHERE meeting_id = ? AND stage = ?",
+                (self.meeting["id"], name),
+            ).fetchone()
             # Drop the old checkpoint first: a crash mid-stage must not leave it trusted.
             self.connection.execute(
                 "DELETE FROM checkpoints WHERE meeting_id = ? AND stage = ?",
@@ -180,6 +208,14 @@ class Run:
             )
             names, detail = produce()
             artifacts = {n: sha256(self.artifact(n)) for n in names}
+            if previous is None or json.loads(previous[0]) != artifacts:
+                # Changed output: every downstream checkpoint was built from the old one and
+                # must not be reused or exported alongside it (e.g. new transcript, old notes).
+                for stale in sorted(dependents(name)):
+                    self.connection.execute(
+                        "DELETE FROM checkpoints WHERE meeting_id = ? AND stage = ?",
+                        (self.meeting["id"], stale),
+                    )
             self.connection.execute(
                 "INSERT INTO checkpoints VALUES (?, ?, ?, ?, ?)",
                 (self.meeting["id"], name, fingerprint or "", json.dumps(artifacts), now()),
@@ -222,6 +258,11 @@ def store_segments(connection: sqlite3.Connection, meeting_id: str, transcript: 
                 (meeting_id, s.id, i, s.start, s.end, s.speaker, int(s.overlap))
                 for i, s in enumerate(transcript.segments)
             ],
+        )
+        connection.execute("DELETE FROM speaker_labels WHERE meeting_id = ?", (meeting_id,))
+        connection.executemany(
+            "INSERT INTO speaker_labels VALUES (?, ?)",
+            [(meeting_id, label) for label in transcript_labels(transcript)],
         )
 
 

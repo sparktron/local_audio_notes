@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 from local_audio_notes.errors import NotesError
 from local_audio_notes.extraction.grounding import normalize
+from local_audio_notes.schemas import Transcript
 from local_audio_notes.storage.db import now, transaction
 
 LABEL = re.compile(r"Speaker [1-9]\d*")
@@ -31,11 +32,26 @@ class SpeakerView:
         return f"{name} [{label}]" if name else label
 
 
+def transcript_labels(transcript: Transcript) -> list[str]:
+    """Speaker labels in order of first appearance, from segments and their words.
+
+    A speaker heard only inside mixed segments has no segment-level label (those segments
+    are "Uncertain") but keeps word-level labels; they must still be nameable.
+    """
+    found = (
+        label
+        for segment in transcript.segments
+        for label in (segment.speaker, *(w.speaker for w in segment.words))
+        if LABEL.fullmatch(label)
+    )
+    return list(dict.fromkeys(found))
+
+
 def labels(connection: sqlite3.Connection, meeting_id: str) -> set[str]:
     rows = connection.execute(
-        "SELECT DISTINCT speaker FROM segments WHERE meeting_id = ?", (meeting_id,)
+        "SELECT label FROM speaker_labels WHERE meeting_id = ?", (meeting_id,)
     )
-    return {r[0] for r in rows if LABEL.fullmatch(r[0])}
+    return {r[0] for r in rows}
 
 
 def load_view(connection: sqlite3.Connection, meeting_id: str, transcript_sha: str) -> SpeakerView:

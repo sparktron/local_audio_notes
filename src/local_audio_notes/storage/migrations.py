@@ -123,4 +123,13 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
             PRIMARY KEY (meeting_id, transcript_sha256, segment_id)
         ) STRICT""",
     ),
+    # 2: every speaker label that occurs in an attributed transcript, including labels that
+    # appear only on words inside mixed ("Uncertain") segments, so users can name them.
+    (
+        """CREATE TABLE speaker_labels (
+            meeting_id TEXT NOT NULL REFERENCES meetings(id),
+            label TEXT NOT NULL CHECK (label GLOB 'Speaker [1-9]*'),
+            PRIMARY KEY (meeting_id, label)
+        ) STRICT""",
+    ),
 )

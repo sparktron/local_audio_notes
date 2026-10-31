@@ -23,11 +23,15 @@ def escape(value: str) -> str:
 
 
 def participants(transcript: Transcript, view: SpeakerView) -> list[dict[str, str | None]]:
-    seen = dict.fromkeys(
-        view.speaker(s.id, s.speaker)
-        for s in transcript.segments
-        if LABEL.fullmatch(view.speaker(s.id, s.speaker))
-    )
+    found = []
+    for segment in transcript.segments:
+        current = view.speaker(segment.id, segment.speaker)
+        # A confirmed correction replaces the segment's labels; otherwise word labels count.
+        if segment.id in view.overrides:
+            found.append(current)
+        else:
+            found += [current, *(w.speaker for w in segment.words)]
+    seen = dict.fromkeys(label for label in found if LABEL.fullmatch(label))
     return [{"label": label, "name": view.names.get(label)} for label in seen]
 
 

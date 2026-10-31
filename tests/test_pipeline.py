@@ -4,6 +4,7 @@ import stat
 
 import pytest
 
+import local_audio_notes.pipeline as pipeline
 from local_audio_notes.errors import NotesError
 from local_audio_notes.ingestion.importer import ingest
 from local_audio_notes.jobs.queue import describe, process
@@ -145,3 +146,35 @@ def test_align_mode_requires_attachment(audio, settings, mocked):
     identifier = ingest(audio, settings)
     with pytest.raises(NotesError, match="requires an attached transcript"):
         process(settings, identifier, mode="align")
+
+
+def test_changed_transcript_invalidates_notes_until_regenerated(
+    audio, settings, mocked, monkeypatch
+):
+    """A rerun that changes the attributed transcript but fails during extraction must not
+    leave the old evidence/summary exportable alongside the new transcript."""
+    from conftest import TURNS
+
+    from local_audio_notes.pipeline import export_notes, verified_checkpoint
+    from local_audio_notes.schemas import SpeakerTurn
+
+    calls, ollama = mocked
+    identifier = ingest(audio, settings)
+    process(settings, identifier)
+    folder = settings.data_dir / identifier
+    swapped = [SpeakerTurn(start=t.start, end=t.end, speaker=f"other_{t.speaker}") for t in TURNS]
+    swapped.reverse()  # different first-appearance order -> different labels
+    monkeypatch.setattr(pipeline, "diarize", lambda *args: swapped)
+    ollama.fail_on_call = len(ollama.payloads) + 1
+    with pytest.raises(NotesError, match="extracting"):
+        process(settings, identifier, force=True)
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        for stage in ("extracting", "consolidating", "summarizing", "exporting"):
+            assert verified_checkpoint(connection, identifier, folder, stage) is None, stage
+        assert verified_checkpoint(connection, identifier, folder, "attributing")
+        with pytest.raises(NotesError, match="Notes inputs missing"):
+            export_notes(settings, connection, identifier)
+    ollama.fail_on_call = None
+    process(settings, identifier)
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        export_notes(settings, connection, identifier)
