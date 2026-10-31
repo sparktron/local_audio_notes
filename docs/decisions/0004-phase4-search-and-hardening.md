@@ -17,11 +17,15 @@ SQLite proves inadequate; plus security tests, offline validation and performanc
    transcript text. User input never reaches FTS5 syntax: it is reduced to at most 16 words,
    each quoted, so operators and column filters are matched literally.
 2. **Participants resolve through confirmed mappings.** Filters match the effective speaker
-   label or confirmed name of each segment, including segment corrections, per meeting.
+   label or confirmed name of each segment, including segment corrections, per meeting. The
+   filter is applied while streaming ranked matches, before counting toward the limit.
 3. **Embeddings are optional, local and off by default.** `embedding_model` must name an
    already installed Ollama model; it is verified like the notes model and called only on
-   127.0.0.1. Unit-normalized float32 vectors live in SQLite keyed by model name and digest,
-   so a changed model never mixes with old vectors. Similarity is brute-force cosine (numpy
+   127.0.0.1. Unit-normalized float32 vectors live in SQLite keyed by model name and digest
+   and bound to the transcript digest they were computed from; search uses only vectors of
+   the meeting's current verified transcript, so a changed model or a reprocessed transcript
+   never mixes with old vectors. Semantic search covers transcript segments only and rejects
+   a category filter rather than ignoring it. Similarity is brute-force cosine (numpy
    when installed, pure Python otherwise). The embedding stage runs after notes are exported,
    so its failure never costs the notes.
 4. **Hash cache keyed by device, inode, size, mtime and ctime.** Model weights and recordings

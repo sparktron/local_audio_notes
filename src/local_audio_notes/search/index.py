@@ -96,11 +96,14 @@ def embed_segments(
     connection: sqlite3.Connection,
     meeting_id: str,
     transcript: Transcript,
+    transcript_sha: str,
     client: Embedder,
     model: str,
     model_key: str,
     check: Callable[[], None] = lambda: None,
 ) -> int:
+    """Vectors are bound to the transcript digest; search ignores vectors whose transcript is
+    no longer the meeting's verified attributed transcript (reprocessed or in progress)."""
     rows = []
     segments = transcript.segments
     for start in range(0, len(segments), EMBED_BATCH):
@@ -109,10 +112,12 @@ def embed_segments(
         vectors = client.embed(model, [s.text[:EMBED_TEXT_LIMIT] for s in batch])
         for segment, vector in zip(batch, vectors, strict=True):
             values = _normalized(vector)
-            rows.append((meeting_id, segment.id, model_key, len(values), values.tobytes()))
+            rows.append(
+                (meeting_id, segment.id, model_key, transcript_sha, len(values), values.tobytes())
+            )
     with transaction(connection):
         connection.execute("DELETE FROM segment_embeddings WHERE meeting_id = ?", (meeting_id,))
-        connection.executemany("INSERT INTO segment_embeddings VALUES (?, ?, ?, ?, ?)", rows)
+        connection.executemany("INSERT INTO segment_embeddings VALUES (?, ?, ?, ?, ?, ?)", rows)
     return len(rows)
 
 
@@ -187,6 +192,9 @@ def search(
             if not wanted:
                 hits.append(Hit("meeting", row[0], row[1], row[2], snippet=row[1] or ""))
 
+    if semantic and category:
+        # Embeddings exist for transcript segments only; never return out-of-scope results.
+        raise NotesError("Similar-meaning search covers transcripts; clear the category filter")
     if semantic:
         hits += _semantic(connection, settings, text, embedder, views, wanted, dates, date_params)
         return hits[:limit]
@@ -200,10 +208,15 @@ def search(
         "JOIN meetings m ON m.id = i.meeting_id WHERE item_search MATCH ?"
         + (" AND i.category = ?" if category else "")
         + dates
-        + " ORDER BY bm25(item_search) LIMIT 500",
+        + " ORDER BY bm25(item_search)",
         (query, *([category] if category else []), *date_params),
-    ).fetchall()
+    )
+    # Stream ranked candidates and filter by effective speaker before counting, so a
+    # participant filter never loses matches that rank below an arbitrary row cap.
+    found = 0
     for meeting_id, item_id, kind, text_snippet, score, title, meeting_date in item_rows:
+        if found >= limit:
+            break
         evidence = connection.execute(
             "SELECT e.segment_id, g.start_s, g.speaker FROM item_evidence e JOIN segments g "
             "ON g.meeting_id = e.meeting_id AND g.segment_id = e.segment_id "
@@ -213,6 +226,7 @@ def search(
         speakers = [views.speaker(meeting_id, s, label) for s, _, label in evidence]
         if wanted and not any(wanted in s.casefold() for s in speakers):
             continue
+        found += 1
         hits.append(
             Hit(
                 "item",
@@ -235,13 +249,17 @@ def search(
             + ", bm25(segment_search), g.start_s, g.speaker, m.title, m.meeting_date "
             "FROM segment_search s JOIN segments g ON g.meeting_id = s.meeting_id "
             "AND g.segment_id = s.segment_id JOIN meetings m ON m.id = s.meeting_id "
-            "WHERE segment_search MATCH ?" + dates + " ORDER BY bm25(segment_search) LIMIT 2000",
+            "WHERE segment_search MATCH ?" + dates + " ORDER BY bm25(segment_search)",
             (query, *date_params),
-        ).fetchall()
+        )
+        found = 0
         for meeting_id, segment_id, text_snippet, score, start, label, title, mdate in segment_rows:
+            if found >= limit:
+                break
             speaker = views.speaker(meeting_id, segment_id, label)
             if wanted and wanted not in speaker.casefold():
                 continue
+            found += 1
             hits.append(
                 Hit(
                     "transcript",
@@ -277,6 +295,9 @@ def _semantic(
         "SELECT e.meeting_id, e.segment_id, e.vector, g.start_s, g.speaker, m.title, "
         "m.meeting_date FROM segment_embeddings e JOIN segments g ON g.meeting_id = e.meeting_id "
         "AND g.segment_id = e.segment_id JOIN meetings m ON m.id = e.meeting_id "
+        # Only vectors computed from the meeting's current verified transcript.
+        "JOIN checkpoints c ON c.meeting_id = e.meeting_id AND c.stage = 'attributing' "
+        "AND json_extract(c.artifacts, '$.\"transcript.json\"') = e.transcript_sha256 "
         "WHERE e.model = ? AND e.dims = ?" + dates,
         (model_key, len(query), *date_params),
     ).fetchall()

@@ -218,3 +218,88 @@ def test_web_search_escapes_and_highlights(indexed, settings, tmp_path):
     assert client.get("/search", params={"q": "x", "date_from": "soon"}).status_code == 400
     semantic = client.get("/search", params={"q": "storage", "semantic": "on"}).text
     assert "embedding_model" in semantic
+
+
+def test_embeddings_from_an_older_transcript_are_never_matched(
+    audio, settings, mocked, monkeypatch
+):
+    """Reprocessing that changes the transcript but stops before indexing must not let old
+    vectors be joined to new segments by ID."""
+    from conftest import TURNS
+
+    import local_audio_notes.pipeline as pipeline
+    from local_audio_notes.schemas import SpeakerTurn
+
+    calls, ollama = mocked
+    settings = settings.model_copy(update={"embedding_model": "embed:latest"})
+    identifier = ingest(audio, settings)
+    process(settings, identifier)
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        assert search(connection, settings, "migration", semantic=True, embedder=ollama)
+
+    def transcript_sha():
+        with contextlib.closing(connect(settings.data_dir)) as connection:
+            return connection.execute(
+                "SELECT artifacts FROM checkpoints WHERE meeting_id = ? AND stage = 'attributing'",
+                (identifier,),
+            ).fetchone()[0]
+
+    before = transcript_sha()
+    # One voice throughout: every segment gets a different label, so the transcript changes.
+    solo = [SpeakerTurn(start=t.start, end=t.end, speaker="solo") for t in TURNS]
+    monkeypatch.setattr(pipeline, "diarize", lambda *args: solo)
+    ollama.fail_on_call = len(ollama.payloads) + 1
+    with pytest.raises(NotesError, match="extracting"):
+        process(settings, identifier, force=True)
+    assert transcript_sha() != before
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        assert connection.execute("SELECT count(*) FROM segment_embeddings").fetchone()[0] == 9
+        with pytest.raises(NotesError, match="No embeddings for the current"):
+            search(connection, settings, "migration", semantic=True, embedder=ollama)
+    ollama.fail_on_call = None
+    process(settings, identifier)
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        assert search(connection, settings, "migration", semantic=True, embedder=ollama)
+
+
+def test_participant_filter_reaches_matches_beyond_any_row_cap(settings):
+    from local_audio_notes.ingestion.importer import register
+    from local_audio_notes.pipeline import store_segments
+    from local_audio_notes.schemas import Segment, Transcript
+
+    count = 2_500
+    transcript = Transcript(
+        language="en",
+        segments=[
+            Segment(
+                id=f"s{i:06d}",
+                start=i,
+                end=i + 1,
+                text="budget review",
+                speaker="Speaker 2" if i == count - 1 else "Speaker 1",
+            )
+            for i in range(count)
+        ],
+    )
+    identifier = "00000000-0000-4000-8000-000000000002"
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        register(
+            connection,
+            {
+                "id": identifier,
+                "sha256": "b" * 64,
+                "duration": count,
+                "format": ["wav"],
+                "imported_at": "now",
+            },
+        )
+        store_segments(connection, identifier, transcript)
+        hits = search(connection, settings, "budget", participant="speaker 2")
+        assert [h.ref for h in hits] == [f"s{count - 1:06d}"]
+        assert len(search(connection, settings, "budget", limit=30)) == 30
+
+
+def test_semantic_search_with_category_is_rejected(indexed, settings):
+    _, connection = indexed
+    with pytest.raises(NotesError, match="clear the category"):
+        search(connection, settings, "storage", semantic=True, category="action")

@@ -147,6 +147,7 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
             meeting_id TEXT NOT NULL REFERENCES meetings(id),
             segment_id TEXT NOT NULL,
             model TEXT NOT NULL,
+            transcript_sha256 TEXT NOT NULL CHECK (length(transcript_sha256) = 64),
             dims INTEGER NOT NULL CHECK (dims > 0),
             vector BLOB NOT NULL CHECK (length(vector) = dims * 4),
             PRIMARY KEY (meeting_id, segment_id, model)
