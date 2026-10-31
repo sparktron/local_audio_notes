@@ -69,3 +69,14 @@
 - **Sensitive errors suppressed**: native errors can include transcript text, tokens or
   paths, so the CLI emits only a safe message/error class. Inspect private artifacts locally.
   Avoid publishing them in bug reports. `doctor` prints only tool/package/hardware information.
+- **Web: "Sign in required"**: open the link printed by `serve`; it changes on every start.
+  Bookmarking `http://127.0.0.1:8765/` works only while the session cookie is valid.
+- **Web: "Invalid host header" or 403 on forms**: use `127.0.0.1` or `localhost` with the
+  served port. Browser extensions or proxies that rewrite Origin cause 403s by design.
+- **Web: port in use**: choose another with `serve --port`; the server never falls back to
+  another interface.
+- **Web: job stays queued**: the server starts a `worker` process when jobs are queued and
+  checks again every 10 seconds. `jobs` and `status` show its progress; a `worker` started
+  from the CLI works too.
+- **Web dependencies missing**: `.venv/bin/python -m pip install -e '.[web]'` (explicit,
+  network-enabled installation).

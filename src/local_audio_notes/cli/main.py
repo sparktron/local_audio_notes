@@ -104,6 +104,8 @@ def parser() -> argparse.ArgumentParser:
         "--assign", type=_pair, action="append", default=[], metavar="'s000123=Speaker N'"
     )
     speakers.add_argument("--unassign", action="append", default=[], metavar="s000123")
+    web = sub.add_parser("serve", help="Run the web interface on 127.0.0.1 only")
+    web.add_argument("--port", type=int, default=8765)
     export = sub.add_parser("export", help="Re-render notes; optionally copy them to a new file")
     export.add_argument("meeting_id")
     export.add_argument("--format", choices=["md", "json"], default="md")
@@ -357,6 +359,14 @@ def main(argv: list[str] | None = None) -> int:
             with requeue_on_sigterm(), quiet():
                 process(settings, args.meeting_id, args.mode, args.notes_only, args.force)
             print("Complete: notes.md, notes.json and transcript.json in the meeting directory")
+        elif args.command == "serve":
+            try:
+                from local_audio_notes.api.app import serve
+            except ImportError:
+                raise NotesError(
+                    "Web dependencies missing; install with: .venv/bin/pip install -e '.[web]'"
+                ) from None
+            serve(settings, args.config.resolve() if args.config else None, args.port)
         elif args.command in QUEUE_COMMANDS:
             return _queue_command(args, settings)
         elif args.command == "models-check":

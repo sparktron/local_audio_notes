@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Dashboard</h1>
+<section class="stats">
+  <div><span class="n">{{ stats.meetings }}</span> meetings</div>
+  <div><span class="n">{{ "%.1f"|format(stats.hours) }}</span> hours recorded</div>
+  {% for state, count in stats.jobs.items() %}
+  <div><span class="n">{{ count }}</span> {{ state }} jobs</div>
+  {% endfor %}
+  <div>worker: {{ "running" if worker else "idle" }}</div>
+</section>
+
+<form method="get" action="/" class="search">
+  <input type="search" name="q" value="{{ q }}" placeholder="Filter by title or date" maxlength="200">
+  <button type="submit">Search</button>
+</form>
+
+<h2>Recent meetings</h2>
+{% if meetings %}
+<table>
+  <thead><tr><th>Meeting</th><th>Date</th><th>Duration</th><th>Status</th><th>Imported</th></tr></thead>
+  <tbody>
+  {% for m in meetings %}
+  <tr>
+    <td><a href="/meetings/{{ m.id }}">{{ m.title or "Untitled " ~ m.id[:8] }}</a></td>
+    <td>{{ m.meeting_date or "—" }}</td>
+    <td>{{ timestamp(m.duration) }}</td>
+    <td><span class="state {{ m.state or 'imported' }}">{{ m.state or "imported" }}</span>
+        {% if m.state in ("running", "failed", "cancelled") and m.stage %}<small>{{ m.stage }}</small>{% endif %}</td>
+    <td>{{ m.imported_at[:16].replace("T", " ") }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No meetings{% if q %} match this filter{% endif %}. <a href="/import">Import a recording</a>.</p>
+{% endif %}
+
+{% if stats.stages %}
+<h2>Processing time per stage (successful runs)</h2>
+<table>
+  <thead><tr><th>Stage</th><th>Runs</th><th>Mean</th><th>Longest</th></tr></thead>
+  <tbody>
+  {% for s in stats.stages %}
+  <tr><td>{{ s.stage }}</td><td>{{ s.runs }}</td><td>{{ "%.1f"|format(s.mean or 0) }} s</td><td>{{ "%.1f"|format(s.longest or 0) }} s</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

@@ -1,7 +1,7 @@
 # Security and privacy boundaries
 
 Runtime processing has no external inference API, analytics, automatic update check,
-model fetch, external UI asset or web service. The only supported HTTP target is
+model fetch or external UI asset. The optional web interface listens on 127.0.0.1 only. The only supported HTTP target is
 `http://127.0.0.1:11434`. HTTP redirects and environment proxies are disabled. Cloud
 Ollama model tags/remote aliases are rejected using both inventory and model metadata.
 The separately running Ollama server is a trust boundary: use a trusted installation,
@@ -102,3 +102,19 @@ process inspection and privileged users can expose content. This scaffold does n
 VRAM, provide secure deletion, authenticate files, or defend against a malicious same-UID
 process. Do not share its writable data directory across users. No retention automation
 or automatic deletion is enabled; capacity and backup management are your responsibility.
+
+## Web interface
+
+`serve` binds 127.0.0.1 itself and cannot listen elsewhere. Access needs the per-launch
+sign-in link printed in the terminal; it sets an HttpOnly, SameSite=Strict session cookie.
+Requests with a Host other than 127.0.0.1/localhost are rejected (DNS rebinding). State
+changes are refused when Origin or Sec-Fetch-Site indicate another site and require a
+per-session CSRF token. Responses carry a strict Content-Security-Policy (no inline or
+third-party script, style or media; no framing), nosniff, no-referrer and no-store headers.
+FastAPI's interactive docs (CDN assets) and its built-in OpenTelemetry instrumentation are
+disabled, and `FASTAPI_OTEL_AUTO_CONFIGURE` is forced off. Templates autoescape transcript
+text, titles and names. Uploads stream into the private data directory under the configured
+byte limits, are validated by `ingest`, and the staged copies are deleted. Errors show the
+application's own messages or an exception class name, never library exception text.
+Request access logs are disabled. See ADR-0003 for the threat model and its limits: a
+malicious process running as the same user can read the token and the data directly.

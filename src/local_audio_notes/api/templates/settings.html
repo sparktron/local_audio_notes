@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+{% if saved %}<p class="ok">Saved. New jobs use these settings.</p>{% endif %}
+{% if not config_path %}
+<p class="error">The server was started without <code>--config</code>; settings are shown read-only.</p>
+{% endif %}
+<form method="post" action="/settings">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <fieldset>
+    <legend>Transcription</legend>
+    <label>Whisper model label <input name="whisper_model" value="{{ values.whisper_model }}"></label>
+    <p class="hint">Weights come from the registered local model directory (<code>models-register</code>), not this label.</p>
+    <label>Language (<code>auto</code> to detect) <input name="language" value="{{ values.language }}"></label>
+    <label>Alignment language <input name="alignment_language" value="{{ values.alignment_language }}"></label>
+  </fieldset>
+  <fieldset>
+    <legend>GPU and performance</legend>
+    <label>Device
+      <select name="device">{% for d in ["auto", "cuda", "cpu"] %}<option{% if d == values.device %} selected{% endif %}>{{ d }}</option>{% endfor %}</select></label>
+    <label>Compute type
+      <select name="compute_type">{% for c in ["float16", "int8_float16", "int8", "float32"] %}<option{% if c == values.compute_type %} selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
+    <label>Batch size <input type="number" name="batch_size" min="1" max="64" value="{{ values.batch_size }}"></label>
+    <label>CPU threads <input type="number" name="cpu_threads" min="1" max="32" value="{{ values.cpu_threads }}"></label>
+    <label><input type="checkbox" name="oom_cpu_fallback"{% if values.oom_cpu_fallback %} checked{% endif %}> Retry diarization on CPU after GPU out-of-memory (slow)</label>
+  </fieldset>
+  <fieldset>
+    <legend>Diarization</legend>
+    <label>Minimum speakers <input type="number" name="min_speakers" min="1" max="32" value="{{ values.min_speakers }}"></label>
+    <label>Maximum speakers <input type="number" name="max_speakers" min="1" max="32" value="{{ values.max_speakers }}"></label>
+  </fieldset>
+  <fieldset>
+    <legend>Local language model (Ollama on 127.0.0.1)</legend>
+    <label>Model
+      {% if installed %}
+      <select name="ollama_model">
+        {% if values.ollama_model not in installed %}<option value="{{ values.ollama_model }}" selected>{{ values.ollama_model or "— select —" }}</option>{% endif %}
+        {% for name in installed %}<option{% if name == values.ollama_model %} selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+      {% else %}
+      <input name="ollama_model" value="{{ values.ollama_model }}">
+      <span class="hint">Ollama is not reachable; models cannot be listed. Nothing is ever downloaded.</span>
+      {% endif %}
+    </label>
+    <label>Transcript bytes per request <input type="number" name="chunk_chars" min="500" max="6000" value="{{ values.chunk_chars }}"></label>
+    <label>Overlap segments between requests <input type="number" name="chunk_overlap_segments" min="0" max="10" value="{{ values.chunk_overlap_segments }}"></label>
+  </fieldset>
+  {% if config_path %}<button type="submit">Save settings</button>{% endif %}
+</form>
+
+<h2>Fixed at startup</h2>
+<p class="hint">Change these in the configuration file and restart. They are not editable from the browser.</p>
+<table>
+  <tbody>
+  {% for key in ["data_dir", "models_dir", "ollama_url", "offline_enforced", "max_audio_bytes", "max_audio_seconds", "max_transcript_bytes", "ollama_context", "ollama_predict", "job_max_attempts"] %}
+  <tr><th>{{ key }}</th><td><code>{{ values[key] }}</code></td></tr>
+  {% endfor %}
+  {% if config_path %}<tr><th>configuration file</th><td><code>{{ config_path }}</code></td></tr>{% endif %}
+  </tbody>
+</table>
+{% endblock %}
