@@ -75,8 +75,10 @@
   served port. Browser extensions or proxies that rewrite Origin cause 403s by design.
 - **Web: port in use**: choose another with `serve --port`; the server never falls back to
   another interface.
-- **Web: job stays queued**: the server starts a `worker` process when jobs are queued and
-  checks again every 10 seconds. `jobs` and `status` show its progress; a `worker` started
+- **Web: job stays queued or "running"**: the server starts a `worker` process when jobs are
+  queued and checks every 10 seconds, first requeueing jobs whose worker died (no process
+  holds their meeting lock). Settings saved in the browser apply from the next job a worker
+  claims; saving writes `data_dir`/`models_dir` as absolute paths. `jobs` and `status` show its progress; a `worker` started
   from the CLI works too.
 - **Web dependencies missing**: `.venv/bin/python -m pip install -e '.[web]'` (explicit,
   network-enabled installation).

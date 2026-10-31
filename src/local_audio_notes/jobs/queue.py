@@ -214,17 +214,23 @@ def work(
     job_id: int | None = None,
     once: bool = False,
     on_claim: Callable[[dict[str, Any]], None] = lambda job: None,
+    reload: Callable[[], Settings] | None = None,
 ) -> list[tuple[int, str]]:
-    """Recover abandoned jobs, then run queued jobs in order. Returns (job id, outcome)."""
+    """Recover abandoned jobs, then run queued jobs in order. Returns (job id, outcome).
+
+    `reload` re-reads the configuration before each job, so settings saved while a long
+    queue is running apply to every job claimed afterwards.
+    """
     recover(connection, settings)
     worker = f"pid:{os.getpid()}"
     results = []
     while True:
-        with claim(connection, settings, worker, job_id) as job:
+        current = reload() if reload else settings
+        with claim(connection, current, worker, job_id) as job:
             if job is None:
                 break
             on_claim(job)
-            results.append((job["id"], execute(settings, connection, job)))
+            results.append((job["id"], execute(current, connection, job)))
         if once or job_id is not None:
             break
     return results

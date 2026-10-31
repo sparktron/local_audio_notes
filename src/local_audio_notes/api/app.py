@@ -32,7 +32,7 @@ from local_audio_notes.config import Settings, load_settings
 from local_audio_notes.errors import NotesError
 from local_audio_notes.extraction.grounding import normalize
 from local_audio_notes.ingestion.importer import ingest
-from local_audio_notes.jobs.queue import cancel, describe, enqueue, lock_path
+from local_audio_notes.jobs.queue import cancel, describe, enqueue, lock_path, recover
 from local_audio_notes.llm.ollama import OllamaClient
 from local_audio_notes.notes.render import timestamp
 from local_audio_notes.pipeline import export_notes, get_meeting, verified_checkpoint
@@ -104,8 +104,14 @@ def toml_value(value: Any) -> str:
 def write_config(path: Path, settings: Settings) -> None:
     from local_audio_notes.storage.files import atomic_write
 
+    values = settings.model_dump(mode="json")
+    # Write the effective storage locations as absolute paths: a relative default means
+    # "relative to the working directory" now, but load_settings() would resolve a written
+    # relative path against the config file's directory and silently switch databases.
+    for key in ("data_dir", "models_dir"):
+        values[key] = str(Path(getattr(settings, key)).absolute())
     lines = ["# Written by the local web interface; comments are not preserved."]
-    lines += [f"{k} = {toml_value(v)}" for k, v in settings.model_dump(mode="json").items()]
+    lines += [f"{k} = {toml_value(v)}" for k, v in values.items()]
     atomic_write(path, "\n".join(lines) + "\n")
     path.chmod(0o600)
 
@@ -134,21 +140,29 @@ def create_app(
         if stale.is_file() and not stale.is_symlink():
             stale.unlink()
 
-    def queued_jobs() -> bool:
-        with database(state["settings"]) as connection:
+    def pending_work() -> bool:
+        """Requeue jobs whose worker died (their meeting lock is free), then report whether
+        anything is queued. Live workers hold their locks and are left alone."""
+        current = state["settings"]
+        with database(current) as connection:
+            recover(connection, current)
             return bool(
                 connection.execute("SELECT 1 FROM jobs WHERE state = 'queued' LIMIT 1").fetchone()
             )
 
+    def wake_worker() -> None:
+        if not launcher.running() and pending_work():
+            launcher.ensure()
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
         async def watch() -> None:
-            # A job queued while a worker is exiting would otherwise wait for the next request.
+            # Covers jobs queued while a worker was exiting and jobs left "running" by a worker
+            # that crashed or was killed (including before this server started).
             while True:
-                await asyncio.sleep(10)
                 with contextlib.suppress(Exception):
-                    if not launcher.running() and await run_in_threadpool(queued_jobs):
-                        launcher.ensure()
+                    await run_in_threadpool(wake_worker)
+                await asyncio.sleep(10)
 
         task = asyncio.create_task(watch())
         yield
@@ -238,8 +252,8 @@ def create_app(
                     "FROM stage_runs WHERE state = 'succeeded' GROUP BY stage ORDER BY stage"
                 ).fetchall(),
             }
-        if stats["jobs"].get("queued") and not launcher.running():
-            launcher.ensure()
+        if stats["jobs"].get("queued") or stats["jobs"].get("running"):
+            wake_worker()
         return page(
             request,
             "dashboard.html",
@@ -336,9 +350,17 @@ def create_app(
                 labels = sorted(
                     mapping.labels(connection, identifier), key=lambda x: int(x.split()[1])
                 )
-        notes = None
+        notes, stale = None, False
         if (directory / "notes.json").is_file():
-            notes = json.loads((directory / "notes.json").read_text())
+            with database(current) as connection:
+                current_inputs = verified_checkpoint(
+                    connection, identifier, directory, "summarizing"
+                )
+            # notes.json from an earlier transcript must not be shown as current notes.
+            if current_inputs is not None:
+                notes = json.loads((directory / "notes.json").read_text())
+            else:
+                stale = True
         return {
             "meeting": meeting,
             "status": status,
@@ -347,14 +369,15 @@ def create_app(
             "labels": labels,
             "choices": labels + list(mapping.UNRESOLVED),
             "notes": notes,
+            "notes_stale": stale,
             "active": status["state"] in {"queued", "running"},
         }
 
     @app.get("/meetings/{identifier}")
     def meeting_page(request: Request, identifier: str) -> Response:
         context = meeting_view(identifier)
-        if context["status"]["state"] == "queued" and not launcher.running():
-            launcher.ensure()
+        if context["status"]["state"] in {"queued", "running"}:
+            wake_worker()
         return page(request, "meeting.html", {**context, "worker": launcher.running()})
 
     @app.get("/meetings/{identifier}/audio")

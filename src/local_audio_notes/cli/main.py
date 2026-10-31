@@ -287,7 +287,9 @@ def _queue_command(args: argparse.Namespace, settings: Settings) -> int:
             return 0
         if args.command == "worker":
             with requeue_on_sigterm(), quiet():
-                results = work(settings, connection, once=args.once)
+                results = work(
+                    settings, connection, once=args.once, reload=lambda: load_settings(args.config)
+                )
             for job_id, outcome in results:
                 print(json.dumps({"job": job_id, "outcome": outcome}))
             return 1 if any(outcome != "succeeded" for _, outcome in results) else 0
