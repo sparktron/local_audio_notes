@@ -42,10 +42,11 @@ def _key(char: str) -> str:
     return lowered if len(lowered) == 1 else char
 
 
-def locate(needle: str, haystack: str) -> str | None:
+def locate(needle: str, haystack: str, whole_words: bool = False) -> str | None:
     """Return haystack's own text matching needle, ignoring case and whitespace runs.
 
     The result is always a verbatim slice of the transcript, never the model's spelling.
+    With whole_words, the match must not start or end inside a word ("Al" is not in "Alice").
     """
     target = "".join(_key(c) for c in normalize(needle))
     if not target:
@@ -60,10 +61,17 @@ def locate(needle: str, haystack: str) -> str | None:
         else:
             folded.append(_key(char))
             index.append(position)
-    found = "".join(folded).find(target)
-    if found < 0:
-        return None
-    return haystack[index[found] : index[found + len(target) - 1] + 1]
+    text = "".join(folded)
+    found = text.find(target)
+    while found >= 0:
+        end = found + len(target)
+        if not whole_words or (
+            (found == 0 or not text[found - 1].isalnum() or not target[0].isalnum())
+            and (end == len(text) or not text[end].isalnum() or not target[-1].isalnum())
+        ):
+            return haystack[index[found] : index[end - 1] + 1]
+        found = text.find(target, found + 1)
+    return None
 
 
 _SENTENCE_START = re.compile(r"(?:^|[.!?:;]\s+)([^\W_]+)")

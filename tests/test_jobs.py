@@ -254,3 +254,20 @@ def test_phase1_meeting_directory_adopted(audio, settings, connection):
 def test_status_for_unknown_meeting(settings, connection):
     with pytest.raises(NotesError, match="not found"):
         queue.describe(connection, "00000000-0000-4000-8000-000000000000")
+
+
+def test_worker_reloads_settings_between_jobs(audio, settings, connection, monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(
+        pipeline, "run_job", lambda current, c, job, check: seen.append(current.batch_size)
+    )
+    other = tmp_path / "other.wav"
+    shutil.copy(audio, other)
+    with open(other, "ab") as handle:
+        handle.write(b"\0\0")
+    for path in (audio, other):
+        queue.enqueue(connection, settings, ingest(path, settings))
+    sizes = iter([8, 2, 2])
+    reload = lambda: settings.model_copy(update={"batch_size": next(sizes)})  # noqa: E731
+    queue.work(settings, connection, reload=reload)
+    assert seen == [8, 2]

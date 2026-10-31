@@ -321,3 +321,46 @@ def test_serve_refuses_privileged_or_invalid_ports(settings, port):
 
 def test_health(client):
     assert json.loads(client.get("/health").text)["ok"] is True
+
+
+def test_saving_settings_keeps_effective_storage_paths(tmp_path, monkeypatch, launcher):
+    """Defaults omitted from a config elsewhere stay relative to the working directory."""
+    workdir, elsewhere = tmp_path / "work", tmp_path / "etc"
+    workdir.mkdir()
+    elsewhere.mkdir()
+    monkeypatch.chdir(workdir)
+    config = elsewhere / "config.toml"
+    config.write_text('ollama_model = "qwen2.5:14b"\n')
+    before = load_settings(config)
+    client = TestClient(web.create_app(before, config, 8765, TOKEN, launcher), base_url=BASE)
+    client.get(f"/login?token={TOKEN}")
+    assert post(client, "/settings", {"batch_size": "4"}).status_code == 200
+    after = load_settings(config)
+    assert after.data_dir == (workdir / "data") and after.models_dir == (workdir / "models")
+    assert after.data_dir.resolve() == before.data_dir.resolve()
+
+
+def test_abandoned_running_job_is_recovered_and_worker_started(client, settings, audio, launcher):
+    identifier = imported(client, settings, audio)
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        job_id = queue.enqueue(connection, settings, identifier)
+        # A worker that died mid-job: running, attempts used, nobody holds the meeting lock.
+        connection.execute(
+            "UPDATE jobs SET state = 'running', attempts = 1 WHERE id = ?", (job_id,)
+        )
+    client.get("/")
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        assert queue.get_job(connection, job_id)["state"] == "queued"
+    assert launcher.started == 1
+
+
+def test_stale_notes_hidden_after_transcript_changes(client, settings, audio, mocked):
+    identifier = imported(client, settings, audio, process=True)
+    run_queue(settings)
+    assert "Executive summary" in client.get(f"/meetings/{identifier}").text
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        connection.execute(
+            "DELETE FROM checkpoints WHERE meeting_id = ? AND stage = 'summarizing'", (identifier,)
+        )
+    page = client.get(f"/meetings/{identifier}").text
+    assert "earlier" in page and "Executive summary" not in page

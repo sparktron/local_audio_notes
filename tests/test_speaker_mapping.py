@@ -78,3 +78,49 @@ def test_sentence_start_function_words_are_not_entities():
     assert grounded("Is there consent for that?", "do we have consent for that?")
     assert not grounded("Carol has consent.", "do we have consent for that?")
     assert not grounded("The Board has consent.", "do we have consent for that?")
+
+
+def test_speakers_heard_only_inside_mixed_segments_are_nameable(settings):
+    from local_audio_notes.ingestion.importer import register
+    from local_audio_notes.notes.render import participants
+    from local_audio_notes.pipeline import store_segments
+    from local_audio_notes.schemas import Segment, Transcript, Word
+
+    transcript = Transcript(
+        language="en",
+        segments=[
+            Segment(
+                id=f"s{i:06d}",
+                start=i * 2,
+                end=i * 2 + 2,
+                text="Yes no",
+                speaker="Uncertain",
+                words=[
+                    Word(text="Yes", start=i * 2, end=i * 2 + 1, speaker="Speaker 1"),
+                    Word(text="no", start=i * 2 + 1, end=i * 2 + 2, speaker="Speaker 2"),
+                ],
+            )
+            for i in range(2)
+        ],
+    )
+    identifier = "00000000-0000-4000-8000-000000000001"
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        register(
+            connection,
+            {
+                "id": identifier,
+                "sha256": "a" * 64,
+                "duration": 4,
+                "format": ["wav"],
+                "imported_at": "now",
+            },
+        )
+        store_segments(connection, identifier, transcript)
+        assert mapping.labels(connection, identifier) == {"Speaker 1", "Speaker 2"}
+        mapping.set_name(connection, identifier, "f" * 64, "Speaker 2", "Dana")
+        mapping.correct_segment(connection, identifier, "f" * 64, "s000000", "Speaker 1")
+        view = mapping.load_view(connection, identifier, "f" * 64)
+    assert participants(transcript, view) == [
+        {"label": "Speaker 1", "name": None},
+        {"label": "Speaker 2", "name": "Dana"},
+    ]

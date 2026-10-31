@@ -2,7 +2,9 @@
 
 ## Phase 4 — 2026-10-31
 
-- `pytest -q`: **220 passed, 1 skipped**; Ruff check and format clean.
+- `pytest -q`: **220 passed, 1 skipped**; Ruff check and format clean. After merging the
+  review fixes from #1 and #2 (dependent-checkpoint invalidation, word-level speaker labels,
+  whole-word owners, settings paths, abandoned-job recovery, worker reload): **229 passed**.
 - New tests: FTS search over transcripts, items and titles; diacritics/case; category, date
   and participant filters (labels, confirmed names, corrections); FTS operators and column
   syntax handled literally; empty queries rejected; highlight markers cannot be forged by

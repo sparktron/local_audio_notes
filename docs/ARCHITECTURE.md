@@ -68,7 +68,7 @@ flowchart LR
 ## SQLite
 
 `data/notes.sqlite3`, mode 0600, WAL, `synchronous=FULL`, foreign keys on,
-`trusted_schema=OFF`, STRICT tables, forward-only migrations (`PRAGMA user_version`; 2 so far).
+`trusted_schema=OFF`, STRICT tables, forward-only migrations (`PRAGMA user_version`; 3 so far).
 
 | Table | Holds |
 | --- | --- |
@@ -80,7 +80,8 @@ flowchart LR
 | extraction_chunks | schema-valid raw Stage 1 responses keyed by prompt/model/payload hash |
 | items, item_evidence | consolidated evidence items and their verbatim quotes |
 | speaker_names, speaker_corrections | confirmed names / segment reassignments per transcript hash |
-| segment_search, item_search (FTS5) | segment text and item text for search (migration 2) |
+| speaker_labels | every speaker label in the transcript, including word-only labels (migration 2) |
+| segment_search, item_search (FTS5) | segment text and item text for search (migration 3) |
 | segment_embeddings | optional unit float32 vectors keyed by embedding model name+digest |
 
 Since Phase 4 the search tables hold full transcript text; artifacts remain the source of

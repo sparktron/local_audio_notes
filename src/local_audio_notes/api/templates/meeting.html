@@ -56,6 +56,10 @@
   <audio controls preload="metadata" src="/meetings/{{ meeting.id }}/audio" id="player"></audio>
 </section>
 
+{% if notes_stale %}
+<section class="panel"><p class="error">The saved notes were generated from an earlier
+transcript and are hidden. Process the meeting again to regenerate them.</p></section>
+{% endif %}
 {% if notes %}
 <section class="panel" id="notes">
   <h2>Notes <small>draft · verify against the audio</small></h2>

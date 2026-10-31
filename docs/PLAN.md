@@ -86,7 +86,8 @@ Scope: full-text search, optional local embeddings, security tests, offline vali
 performance improvements. Design and measurements:
 [ADR-0004](decisions/0004-phase4-search-and-hardening.md).
 
-1. Migration 2: FTS5 tables for segments and items; embedding table.
+1. Migration 3: FTS5 tables for segments and items; embedding table (migration 2 is the
+   speaker-label inventory added by the PR #1 review fixes).
 2. Search (`search/index.py`, CLI `search`/`reindex`, web Search page): titles, dates,
    transcript text, participants (labels, confirmed names, corrections), extracted items by
    category, optional semantic similarity; results link to meeting and timestamp.
