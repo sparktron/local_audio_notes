@@ -81,8 +81,9 @@ links and table metacharacters; do not later render raw transcript HTML.
 ## Database
 
 `data/notes.sqlite3` is created 0600 by the application (symlinks refused) and, like the
-artifacts, contains transcript-derived text: extracted quotes, cached model responses,
-titles and confirmed speaker names. `status`/`jobs` output and stored error messages are
+artifacts, contains transcript text: the full-text search index of every segment (Phase 4),
+extracted quotes, cached model responses, optional embedding vectors, titles and confirmed
+speaker names. Embeddings are derived from transcript text and must be treated as sensitive. `status`/`jobs` output and stored error messages are
 limited to stage names, counts, durations and the application's own fixed error texts;
 library exception messages are never stored. `secure_delete` is enabled, but on SSDs and
 copy-on-write filesystems overwritten pages can persist: rely on full-volume encryption.
@@ -118,3 +119,26 @@ byte limits, are validated by `ingest`, and the staged copies are deleted. Error
 application's own messages or an exception class name, never library exception text.
 Request access logs are disabled. See ADR-0003 for the threat model and its limits: a
 malicious process running as the same user can read the token and the data directly.
+
+## Search, embeddings and offline evidence
+
+Search input is reduced to quoted words before reaching SQLite FTS5, so query syntax cannot
+be injected; results are escaped in the browser (match highlighting uses markers that are
+stripped from indexed text). Semantic search is off unless `embedding_model` names an
+installed local model; embedding requests go to the same fixed 127.0.0.1:11434 endpoint,
+with the same local-model verification as the notes model.
+
+Network behaviour has been **observed**, not only inspected, for specific runs on this host
+(see VALIDATION.md): `scripts/observe_network.sh` traces connect/sendto/sendmsg/sendmmsg/bind
+for a command and all children with strace, parsing each call's destination address
+(including unconnected UDP such as DNS) and ignoring payload bytes. On 2026-10-31 `ingest` made no network calls, `run`
+made one connection to 127.0.0.1:11434, and `serve` only bound its loopback port while
+handling requests; a positive control (`curl https://example.com`) was flagged, including
+its loopback DNS query. This is evidence about those runs, not proof for every code path,
+for real model inference (not yet run), or for the Ollama server process.
+
+The SHA-256 hash cache trusts device, inode, size, mtime and ctime. It detects changes
+made through normal file writes, renames or permission changes, but timestamps have kernel
+tick granularity; use `models-check --full` or `hash_cache = false` when every verification
+must reread the bytes. It is a corruption check, not authentication against a same-user
+attacker, as before.

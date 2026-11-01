@@ -92,3 +92,55 @@ def copy_bounded(source: Path, target: Path, limit: int) -> str:
             target.unlink(missing_ok=True)
         raise
     return digest.hexdigest()
+
+
+class HashCache:
+    """Reuse SHA-256 results while a file's device, inode, size, mtime and ctime match.
+
+    Ordinary processes cannot set ctime, so writes, renames and permission changes force a
+    rehash. Timestamps have kernel-tick granularity: a same-size rewrite within one tick of
+    hashing could go unnoticed, so use full verification (`models-check --full` or
+    `hash_cache = false`) when that matters. A missing or unreadable cache means rehashing.
+    """
+
+    def __init__(self, path: Path | None):
+        self.path = path
+        self.entries: dict[str, list[Any]] = {}
+        self.dirty = False
+        if path is not None and path.is_file() and not path.is_symlink():
+            try:
+                loaded = json.loads(path.read_text())
+                if isinstance(loaded, dict):
+                    self.entries = loaded
+            except (OSError, ValueError):
+                pass
+
+    @staticmethod
+    def _stamp(path: Path) -> list[int]:
+        status = os.stat(path, follow_symlinks=False)
+        return [
+            status.st_dev,
+            status.st_ino,
+            status.st_size,
+            status.st_mtime_ns,
+            status.st_ctime_ns,
+        ]
+
+    def sha256(self, path: Path) -> str:
+        if self.path is None:
+            return sha256(path)
+        key = str(path.absolute())
+        stamp = self._stamp(path)
+        entry = self.entries.get(key)
+        if isinstance(entry, list) and len(entry) == 6 and entry[:5] == stamp:
+            return str(entry[5])
+        digest = sha256(path)
+        if self._stamp(path) == stamp:  # unchanged while hashing
+            self.entries[key] = [*stamp, digest]
+            self.dirty = True
+        return digest
+
+    def save(self) -> None:
+        if self.path is not None and self.dirty:
+            write_json(self.path, self.entries)
+            self.dirty = False

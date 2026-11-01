@@ -80,3 +80,22 @@ Security model: [ADR-0003](decisions/0003-phase3-loopback-web-interface.md).
 
 Not in Phase 3: full-text and semantic search (Phase 4).
 
+## Phase 4 — search and hardening (requested and implemented 2026-10-31)
+
+Scope: full-text search, optional local embeddings, security tests, offline validation,
+performance improvements. Design and measurements:
+[ADR-0004](decisions/0004-phase4-search-and-hardening.md).
+
+1. Migration 3: FTS5 tables for segments and items; embedding table (migration 2 is the
+   speaker-label inventory added by the PR #1 review fixes).
+2. Search (`search/index.py`, CLI `search`/`reindex`, web Search page): titles, dates,
+   transcript text, participants (labels, confirmed names, corrections), extracted items by
+   category, optional semantic similarity; results link to meeting and timestamp.
+3. Optional embeddings via an installed local Ollama model, after notes, checkpointed.
+4. Security tests: static checks (no shell, eval, pickle; subprocess argument arrays; no
+   external URLs or inline script in web assets), FTS syntax handling, search escaping,
+   symlinked meeting directories, private DB sidecars.
+5. Offline validation: Python audit-hook recording across a full mocked run, web and search;
+   `scripts/observe_network.sh` strace observation of real commands, with a positive control.
+6. Performance: stat-keyed hash cache for model weights, recordings and checkpoints;
+   `scripts/benchmark_local.py` measurements.

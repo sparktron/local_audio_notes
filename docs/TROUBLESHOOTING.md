@@ -82,3 +82,15 @@
   from the CLI works too.
 - **Web dependencies missing**: `.venv/bin/python -m pip install -e '.[web]'` (explicit,
   network-enabled installation).
+- **Search finds nothing for older meetings**: meetings processed before Phase 4 have no
+  index rows. Run `reindex`. Search matches whole words literally; try fewer words.
+- **"Semantic search needs embedding_model"**: set `embedding_model` to an embedding model
+  already installed in local Ollama, then `reindex --embeddings` for existing meetings.
+  "No embeddings for the current embedding model" means the model or its digest changed.
+- **`observe_network.sh` reports unexpected endpoints**: inspect the listed addresses. A
+  `127.0.0.53:53` entry is a DNS lookup through systemd-resolved. The application itself
+  should show only 127.0.0.1:11434 and its own bound port; investigate anything else before
+  processing sensitive recordings, and consider the isolated namespace in SECURITY.md.
+- **Model verification is slow**: the first `models-check` or job after installing hashes
+  every model file (about 2.6 s per GiB measured here); later runs reuse cached hashes for
+  unchanged files. `models-check --full` deliberately rehashes everything.

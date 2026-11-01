@@ -24,6 +24,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup, escape
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -37,7 +38,8 @@ from local_audio_notes.jobs.queue import cancel, describe, enqueue, lock_path, r
 from local_audio_notes.llm.ollama import OllamaClient
 from local_audio_notes.notes.render import timestamp
 from local_audio_notes.pipeline import export_notes, get_meeting, verified_checkpoint
-from local_audio_notes.schemas import Transcript
+from local_audio_notes.schemas import CATEGORIES, Transcript
+from local_audio_notes.search.index import MARK_END, MARK_START, search
 from local_audio_notes.speakers import mapping
 from local_audio_notes.storage.db import connect, transaction
 from local_audio_notes.storage.files import meeting_dir, private_dir
@@ -64,6 +66,7 @@ EDITABLE: dict[str, type] = {
     "chunk_chars": int,
     "chunk_overlap_segments": int,
     "oom_cpu_fallback": bool,
+    "embedding_model": str,
 }
 
 
@@ -134,6 +137,13 @@ def create_app(
     launcher = launcher or WorkerLauncher(config_path)
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     templates.env.globals["timestamp"] = timestamp
+
+    def highlight(snippet: str) -> Markup:
+        # Escape first, then turn the private-use match markers into <mark> tags.
+        escaped = str(escape(snippet))
+        return Markup(escaped.replace(MARK_START, "<mark>").replace(MARK_END, "</mark>"))
+
+    templates.env.filters["highlight"] = highlight
     state: dict[str, Any] = {"settings": settings}
     uploads = private_dir(private_dir(settings.data_dir) / ".uploads")
     # Staged uploads are this server's own scratch copies; originals live in meeting dirs.
@@ -259,6 +269,59 @@ def create_app(
             request,
             "dashboard.html",
             {"meetings": meetings, "stats": stats, "q": query, "worker": launcher.running()},
+        )
+
+    @app.get("/search")
+    def search_page(
+        request: Request,
+        q: str = "",
+        participant: str = "",
+        category: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        semantic: str = "",
+    ) -> Response:
+        current = state["settings"]
+        hits, error = [], None
+        if category and category not in CATEGORIES:
+            raise NotesError("Unknown category")
+        for value in (date_from, date_to):
+            if value:
+                try:
+                    date.fromisoformat(value)
+                except ValueError:
+                    raise NotesError("Dates must be YYYY-MM-DD") from None
+        if q.strip():
+            try:
+                with database(current) as connection:
+                    hits = search(
+                        connection,
+                        current,
+                        q[:500],
+                        participant=participant[:100],
+                        category=category,
+                        date_from=date_from,
+                        date_to=date_to,
+                        semantic=semantic == "on",
+                        embedder=OllamaClient(current) if semantic == "on" else None,
+                    )
+            except NotesError as found:
+                error = str(found)
+        return page(
+            request,
+            "search.html",
+            {
+                "q": q,
+                "participant": participant,
+                "category": category,
+                "date_from": date_from,
+                "date_to": date_to,
+                "semantic": semantic == "on",
+                "semantic_available": bool(current.embedding_model),
+                "categories": CATEGORIES,
+                "hits": hits,
+                "error": error,
+            },
         )
 
     @app.get("/import")

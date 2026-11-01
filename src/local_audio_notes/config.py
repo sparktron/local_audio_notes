@@ -28,6 +28,11 @@ class Settings(BaseModel):
     job_max_attempts: int = Field(default=3, ge=1, le=10)
     # Retry diarization on CPU after GPU OOM at the smallest batch. Slow; opt-in.
     oom_cpu_fallback: bool = False
+    # Optional semantic search: an exact, already-installed local Ollama embedding model
+    # (for example "nomic-embed-text:latest"). Empty disables embeddings entirely.
+    embedding_model: str = ""
+    # Reuse SHA-256 results while a file's inode, size, mtime and ctime are unchanged.
+    hash_cache: bool = True
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = ""
     ollama_context: int = Field(default=8192, ge=8192, le=16384)

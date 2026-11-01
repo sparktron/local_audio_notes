@@ -43,6 +43,14 @@
       <span class="hint">Ollama is not reachable; models cannot be listed. Nothing is ever downloaded.</span>
       {% endif %}
     </label>
+    <label>Embedding model for semantic search (optional, must already be installed)
+      {% if installed %}
+      <select name="embedding_model">
+        <option value=""{% if not values.embedding_model %} selected{% endif %}>— off —</option>
+        {% for name in installed %}<option{% if name == values.embedding_model %} selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+      {% else %}<input name="embedding_model" value="{{ values.embedding_model }}">{% endif %}
+    </label>
     <label>Transcript bytes per request <input type="number" name="chunk_chars" min="500" max="6000" value="{{ values.chunk_chars }}"></label>
     <label>Overlap segments between requests <input type="number" name="chunk_overlap_segments" min="0" max="10" value="{{ values.chunk_overlap_segments }}"></label>
   </fieldset>

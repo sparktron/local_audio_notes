@@ -132,4 +132,26 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
             PRIMARY KEY (meeting_id, label)
         ) STRICT""",
     ),
+    # 3: Phase 4 search. The FTS tables hold transcript text and extracted quotes so the
+    # database is now as sensitive as transcript.json. Embeddings are optional and local.
+    (
+        """CREATE VIRTUAL TABLE segment_search USING fts5(
+            text, meeting_id UNINDEXED, segment_id UNINDEXED,
+            tokenize = 'unicode61 remove_diacritics 2'
+        )""",
+        """CREATE VIRTUAL TABLE item_search USING fts5(
+            text, meeting_id UNINDEXED, item_id UNINDEXED, category UNINDEXED,
+            tokenize = 'unicode61 remove_diacritics 2'
+        )""",
+        """CREATE TABLE segment_embeddings (
+            meeting_id TEXT NOT NULL REFERENCES meetings(id),
+            segment_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            transcript_sha256 TEXT NOT NULL CHECK (length(transcript_sha256) = 64),
+            dims INTEGER NOT NULL CHECK (dims > 0),
+            vector BLOB NOT NULL CHECK (length(vector) = dims * 4),
+            PRIMARY KEY (meeting_id, segment_id, model)
+        ) STRICT""",
+        "CREATE INDEX segment_embeddings_by_model ON segment_embeddings(model)",
+    ),
 )

@@ -9,13 +9,13 @@ from pathlib import Path
 from typing import Literal
 
 from local_audio_notes.errors import NotesError
-from local_audio_notes.storage.files import private_dir, sha256, write_json
+from local_audio_notes.storage.files import HashCache, private_dir, sha256, write_json
 
 ModelKind = Literal["whisper", "alignment", "diarization", "tokenizer", "vad"]
 KINDS = ("whisper", "alignment", "diarization", "tokenizer", "vad")
 
 
-def _inventory(path: Path) -> dict[str, str]:
+def _inventory(path: Path, cache: HashCache | None = None) -> dict[str, str]:
     hashes = {}
     for item in sorted(path.rglob("*")):
         if ".cache" in item.relative_to(path).parts or "__pycache__" in item.parts:
@@ -23,7 +23,7 @@ def _inventory(path: Path) -> dict[str, str]:
         if item.is_symlink():
             raise NotesError("Model assets must be materialized files, not symlinks")
         if item.is_file():
-            hashes[item.relative_to(path).as_posix()] = sha256(item)
+            hashes[item.relative_to(path).as_posix()] = (cache.sha256 if cache else sha256)(item)
     if not hashes:
         raise NotesError("Model directory contains no artifacts")
     return hashes
@@ -46,7 +46,10 @@ def register_model(root: Path, kind: str, path: Path, revision: str, source: str
     write_json(manifest_path, manifest)
 
 
-def verify_models(root: Path) -> dict[str, Path]:
+def verify_models(root: Path, cache: bool = False) -> dict[str, Path]:
+    """Check every registered asset against its recorded hashes. With cache=True, files whose
+    inode/size/mtime/ctime are unchanged since a previous full hash are not reread."""
+    hashes = HashCache(root / ".hash-cache.json" if cache else None)
     manifest_path = root / "manifest.json"
     if not manifest_path.is_file():
         raise NotesError("Model manifest missing; run explicit model setup/register commands")
@@ -58,7 +61,7 @@ def verify_models(root: Path) -> dict[str, Path]:
             path = Path(entry["path"])
             if not path.is_absolute() or not path.is_dir() or path.is_symlink():
                 raise ValueError
-            if not entry["revision"] or _inventory(path) != entry["sha256"]:
+            if not entry["revision"] or _inventory(path, hashes) != entry["sha256"]:
                 raise ValueError
             paths[kind] = path
         required = {
@@ -71,6 +74,7 @@ def verify_models(root: Path) -> dict[str, Path]:
         for kind, names in required.items():
             if not all((paths[kind] / name).is_file() for name in names):
                 raise ValueError
+        hashes.save()
         return paths
     except (OSError, KeyError, TypeError, ValueError):
         raise NotesError(

@@ -1,4 +1,5 @@
 import json
+import math
 from typing import Any
 
 import httpx
@@ -37,9 +38,9 @@ class OllamaClient:
             raise NotesError("Invalid Ollama model inventory")
         return value["models"]
 
-    def require_local_model(self) -> str:
-        """Verify the configured model is local; return a name+digest identity for caching."""
-        name = self.settings.ollama_model
+    def require_local_model(self, name: str | None = None) -> str:
+        """Verify a model (default: the notes model) is local; return a name+digest identity."""
+        name = self.settings.ollama_model if name is None else name
         if not name or "cloud" in name.lower():
             raise NotesError("Select an installed local Ollama model in config.toml")
         models = self.models()
@@ -89,3 +90,21 @@ class OllamaClient:
             return value["message"]["content"]
         except (KeyError, TypeError):
             raise NotesError("Ollama response has no content") from None
+
+    def embed(self, model: str, texts: list[str]) -> list[list[float]]:
+        """Local embeddings for a small batch; keep batches small (2 MiB response cap)."""
+        value = self.request(
+            "POST",
+            "/api/embed",
+            {"model": model, "input": texts, "keep_alive": 0, "truncate": True},
+        )
+        vectors = value.get("embeddings") if isinstance(value, dict) else None
+        if (
+            not isinstance(vectors, list)
+            or len(vectors) != len(texts)
+            or not all(isinstance(v, list) and v for v in vectors)
+            or len({len(v) for v in vectors}) != 1
+            or not all(isinstance(x, int | float) and math.isfinite(x) for v in vectors for x in v)
+        ):
+            raise NotesError("Ollama returned invalid embeddings")
+        return vectors
