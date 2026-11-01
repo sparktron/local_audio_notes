@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>{% block title %}Local audio notes{% endblock %}</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header>
+  <nav>
+    <strong>Local audio notes</strong>
+    <a href="/">Dashboard</a>
+    <a href="/import">Import</a>
+    <a href="/settings">Settings</a>
+  </nav>
+  <span class="badge">loopback only · nothing leaves this machine</span>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

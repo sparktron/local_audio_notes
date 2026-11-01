@@ -1,9 +1,10 @@
-# Architecture — Phases 1 and 2
+# Architecture — Phases 1 to 3
 
-A local CLI over a durable SQLite job queue. No web service yet (Phase 3). `cli` loads
+A local CLI and a loopback-only web interface over one durable SQLite job queue. `cli` loads
 validated TOML configuration and enables runtime privacy controls before any ML imports.
 Design decisions: [ADR-0001](decisions/0001-phase1-extractive-drafts.md),
-[ADR-0002](decisions/0002-phase2-evidence-and-durable-jobs.md).
+[ADR-0002](decisions/0002-phase2-evidence-and-durable-jobs.md),
+[ADR-0003](decisions/0003-phase3-loopback-web-interface.md).
 
 ```mermaid
 flowchart LR
@@ -22,6 +23,12 @@ flowchart LR
 ```
 
 ## Modules
+
+- `api`: FastAPI app (`app.py`) with Jinja2 templates and one same-origin JavaScript file.
+  `security.py` holds the request guard: sign-in token → session cookie, Host checks,
+  Origin/Sec-Fetch-Site checks, CSRF tokens, bounded form parsing and security headers.
+  Uploads stream to `data/.uploads/` and go through `ingest`. `WorkerLauncher` starts the
+  CLI `worker` as a subprocess when jobs are queued. `serve` binds 127.0.0.1 itself.
 
 - `ingestion`: content signatures plus ffprobe, bounded copy, SHA-256, random UUID paths,
   UTF-8 attachments. Deduplicates on (audio hash, attachment hash) in SQLite. Writes an
@@ -97,7 +104,6 @@ All private, none committed, none deleted automatically.
 
 ## Deferred
 
-Phase 3: loopback FastAPI dashboard/import/settings/transcript and speaker-correction UI
-(the storage and CLI for corrections exist). Phase 4: SQLite FTS, optional local embeddings,
+Phase 4: SQLite FTS, optional local embeddings,
 broader OS sandbox validation, measured performance work. Retention policies and deletion
 are not implemented.

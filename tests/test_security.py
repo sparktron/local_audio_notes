@@ -64,6 +64,7 @@ from local_audio_notes.errors import NotesError
 enable_runtime()
 assert os.environ['PYANNOTE_METRICS_ENABLED'] == '0'
 assert os.environ['HF_HUB_OFFLINE'] == '1'
+assert os.environ['FASTAPI_OTEL_AUTO_CONFIGURE'] == 'false'
 for host, port in [('203.0.113.1', 443), ('127.0.0.1', 80), ('::1', 11434)]:
     family = socket.AF_INET6 if ':' in host else socket.AF_INET
     with socket.socket(family) as s:
@@ -84,7 +85,7 @@ else:
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
-        env={**os.environ, "PYANNOTE_METRICS_ENABLED": "1"},
+        env={**os.environ, "PYANNOTE_METRICS_ENABLED": "1", "FASTAPI_OTEL_AUTO_CONFIGURE": "true"},
     )
     assert result.returncode == 0, result.stderr
 

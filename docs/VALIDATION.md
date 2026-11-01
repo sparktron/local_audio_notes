@@ -1,5 +1,29 @@
 # Validation
 
+## Phase 3 — 2026-10-31
+
+- `pytest -q`: **149 passed, 1 skipped**. Ruff check and format clean.
+- Dependencies installed explicitly into the venv: FastAPI 0.162.0, Starlette 1.10.0,
+  uvicorn 0.54.0, Jinja2 3.1.6 (`requirements-dev.lock` regenerated). FastAPI now depends on
+  `opentelemetry-api` (API only, no SDK or exporter installed); its instrumentation is
+  disabled in the app and its environment auto-configuration forced off.
+- Real server smoke test (`serve --port 8799`, network guard active, no Ollama): listened on
+  127.0.0.1 only (`ss`); unauthenticated 401; Host `evil.example` 400; sign-in 303 with
+  cookie; CSP, X-Frame-Options present, no Server header; raw upload accepted; import with a
+  cross-site Origin 403; import 303 to the meeting; the real `worker` subprocess ran the job,
+  which failed safely at preflight (Ollama unavailable); staged uploads removed.
+- Tests: sign-in and cookie flags, security headers, no external resources, docs/OpenAPI
+  absent, telemetry switches off, DNS-rebinding Host, cross-site Origin and Sec-Fetch-Site,
+  missing/forged CSRF, upload size and kind limits, non-audio upload, forged upload IDs,
+  traversal and unknown meetings, full import → worker → notes flow (mocked inference),
+  escaped script in titles, speaker names, corrections (including invalid targets), Markdown
+  and JSON downloads, audio range requests, process/cancel, settings validation and fixed
+  fields, read-only settings without a config file, error redaction, stale upload cleanup,
+  launcher argument array, port validation.
+
+Not demonstrated: visual/browser rendering, accessibility, large uploads near the 2 GiB
+limit, long transcripts in the page, behaviour behind proxies.
+
 ## Phase 2 — 2026-10-31
 
 Run on the inspected workstation in this session's shell, Python 3.12.13 venv.

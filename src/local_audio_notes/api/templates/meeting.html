@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}{{ meeting.title or "Meeting" }}{% endblock %}
+{% block content %}
+{% set job = status.job if status.job is defined else None %}
+<h1>{{ meeting.title or "Untitled meeting" }}</h1>
+<p class="hint">ID {{ meeting.id }} · {{ timestamp(meeting.duration) }} · imported {{ meeting.imported_at[:16].replace("T", " ") }}</p>
+
+<section class="panel">
+  <h2>Status: <span class="state {{ status.state }}">{{ status.state }}</span></h2>
+  {% if job %}
+    <p>Job {{ job.id }} ({{ job.kind }}, {{ job.mode }}), attempt {{ job.attempts }} of {{ job.max_attempts }}
+    {% if job.stage %}· stage {{ job.stage }}{% endif %}
+    {% if active and not worker %}· waiting for the worker{% endif %}</p>
+    {% if job.error_message or job.error_class %}
+      <p class="error">{{ job.error_stage or "preflight" }}: {{ job.error_message or job.error_class }}</p>
+    {% endif %}
+    {% if status.stages %}
+    <details><summary>Stage timings</summary>
+      <table><thead><tr><th>Stage</th><th>Result</th><th>Seconds</th></tr></thead><tbody>
+      {% for s in status.stages %}<tr><td>{{ s.stage }}</td><td>{{ s.state }}</td><td>{{ s.seconds if s.seconds is not none else "—" }}</td></tr>{% endfor %}
+      </tbody></table>
+    </details>
+    {% endif %}
+  {% endif %}
+  {% if active %}
+    <form method="post" action="/jobs/{{ job.id }}/cancel" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit">Cancel job</button>
+      <span class="hint">A running job stops at its next safe checkpoint; completed stages are kept.</span>
+    </form>
+  {% else %}
+    <form method="post" action="/meetings/{{ meeting.id }}/process" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <select name="mode">
+        <option value="transcribe">Transcribe locally</option>
+        {% if meeting.attachment_kind %}
+        <option value="align">Align attached transcript</option>
+        <option value="compare">Transcribe and compare</option>
+        {% endif %}
+      </select>
+      <label><input type="checkbox" name="notes_only"> Notes only (reuse transcript)</label>
+      <label><input type="checkbox" name="force"> Recompute all stages</label>
+      <button type="submit">{{ "Process" if status.state == "imported" else "Process again" }}</button>
+    </form>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Details</h2>
+  <form method="post" action="/meetings/{{ meeting.id }}/details" class="inline">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Title <input name="title" value="{{ meeting.title or '' }}" maxlength="200"></label>
+    <label>Date <input type="date" name="meeting_date" value="{{ meeting.meeting_date or '' }}"></label>
+    <button type="submit">Save</button>
+  </form>
+  <audio controls preload="metadata" src="/meetings/{{ meeting.id }}/audio" id="player"></audio>
+</section>
+
+{% if notes_stale %}
+<section class="panel"><p class="error">The saved notes do not match the current transcript
+and evidence, so they are hidden. Process the meeting again to regenerate them.</p></section>
+{% endif %}
+{% if notes %}
+<section class="panel" id="notes">
+  <h2>Notes <small>draft · verify against the audio</small></h2>
+  <p>
+    <a href="/meetings/{{ meeting.id }}/export.md">Download Markdown</a> ·
+    <a href="/meetings/{{ meeting.id }}/export.json">Download JSON</a>
+  </p>
+  {% set items = notes["items"] %}
+  <h3>Executive summary</h3>
+  {% if notes.summary and notes.summary.points %}
+    <ul>{% for p in notes.summary.points %}<li>{{ p.text }} <small>({{ p.item_ids|join(", ") }})</small></li>{% endfor %}</ul>
+  {% else %}<p>Not generated.</p>{% endif %}
+  {% for title, cats in [("Key discussion points", ["purpose", "topic", "fact", "requirement"]),
+                         ("Decisions made", ["decision"]),
+                         ("Proposed decisions (not approved)", ["proposal"]),
+                         ("Risks and blockers", ["risk", "blocker"]),
+                         ("Outstanding questions", ["question"]),
+                         ("Follow-up agenda", ["follow_up"])] %}
+    <h3>{{ title }}</h3>
+    {% set selected = items|selectattr("category", "in", cats)|list %}
+    {% if selected %}<ul>
+      {% for i in selected %}
+      <li id="{{ i.id }}">{{ i.id }}: {{ i.statement or ("“" ~ (i.evidence|map(attribute="quote")|join(" … ")) ~ "”") }}
+        {% if i.basis == "inferred" %}<em>(inferred)</em>{% endif %}
+        {% if i.disputed %}<strong>(classification disputed — verify)</strong>{% endif %}
+        {% for e in i.evidence %}<a href="#{{ e.segment_id }}" class="seek" data-start="{{ e.start }}">{{ timestamp(e.start) }}</a> {% endfor %}
+      </li>
+      {% endfor %}</ul>
+    {% else %}<p>None extracted.</p>{% endif %}
+  {% endfor %}
+  <h3>Action items</h3>
+  {% set actions = items|selectattr("category", "equalto", "action")|list %}
+  {% if actions %}
+  <table>
+    <thead><tr><th>ID</th><th>Commitment</th><th>Owner</th><th>Deadline</th><th>Said by</th><th>Source</th></tr></thead>
+    <tbody>
+    {% for i in actions %}
+    <tr>
+      <td>{{ i.id }}</td>
+      <td>{{ i.statement or (i.evidence|map(attribute="quote")|join(" … ")) }}{% if i.disputed %} <strong>(disputed)</strong>{% endif %}</td>
+      <td>{{ i.owner or "Not stated" }}</td>
+      <td>{{ i.deadline or "Not stated" }}</td>
+      <td>{% for e in i.evidence %}{{ e.speaker_name ~ " [" ~ e.speaker ~ "]" if e.speaker_name else e.speaker }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+      <td>{% for e in i.evidence %}<a href="#{{ e.segment_id }}" class="seek" data-start="{{ e.start }}">{{ timestamp(e.start) }}</a> {% endfor %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>None extracted.</p>{% endif %}
+  {% if notes.rejections %}
+    <p class="hint">Model output rejected or stripped:
+      {% for k, v in notes.rejections|dictsort %}{{ k }} {{ v }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if transcript %}
+<section class="panel" id="speakers">
+  <h2>Speakers</h2>
+  <p class="hint">Names apply to this meeting only and are never used as action-item owners.
+  Leave a name blank to remove it.</p>
+  <form method="post" action="/meetings/{{ meeting.id }}/speakers" class="inline">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% for label in labels %}
+      <label>{{ label }} <input name="name:{{ label }}" value="{{ view.names.get(label, '') }}" maxlength="100"></label>
+    {% endfor %}
+    <button type="submit">Save names</button>
+  </form>
+  {% if view.stale_entries %}<p class="hint">{{ view.stale_entries }} names/corrections from an earlier transcript are not applied.</p>{% endif %}
+</section>
+
+<section class="panel" id="transcript">
+  <h2>Transcript</h2>
+  <form method="post" action="/meetings/{{ meeting.id }}/corrections">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <table class="transcript">
+      <thead><tr><th>Time</th><th>Speaker</th><th>Text</th></tr></thead>
+      <tbody>
+      {% for s in transcript.segments %}
+      {% set current = view.speaker(s.id, s.speaker) %}
+      <tr id="{{ s.id }}"{% if current != s.speaker %} class="corrected"{% endif %}>
+        <td><a href="#{{ s.id }}" class="seek" data-start="{{ s.start }}">{{ timestamp(s.start) }}</a></td>
+        <td>
+          <select name="seg:{{ s.id }}" aria-label="Speaker for {{ s.id }}">
+            {% for choice in choices %}
+            <option value="{{ choice }}"{% if choice == current %} selected{% endif %}>{{ view.display(choice) }}</option>
+            {% endfor %}
+            {% if current not in choices %}<option value="{{ current }}" selected>{{ current }}</option>{% endif %}
+          </select>
+          {% if s.overlap %}<small>overlap</small>{% endif %}
+        </td>
+        <td>{{ s.text }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <button type="submit">Save speaker corrections</button>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

@@ -2,9 +2,9 @@
 
 Private meeting audio → local transcription and alignment → anonymous speakers →
 grounded local Ollama evidence → cited draft notes → Markdown/JSON.
-**Phases 1 and 2 implemented** (CLI, SQLite, durable jobs, evidence extraction).
+**Phases 1–3 implemented** (CLI, SQLite, durable jobs, evidence extraction, loopback web UI).
 
-This is a working CLI implementation with tested media handling and mocked inference
+This is a working CLI and local web implementation with tested media handling and mocked inference
 boundaries. Actual model inference, GPU integration, diarization quality and isolated
 offline inference are **not yet verified**. No models were downloaded during development.
 Do not treat this scaffold as a finished production service.
@@ -15,8 +15,9 @@ strict timed transcript import; private artifacts. Phase 2 adds a private SQLite
 migrations; a durable job queue with cancellation, restart recovery and per-stage metrics;
 hash-verified stage checkpoints so failed or interrupted work resumes instead of restarting;
 two-stage evidence extraction (validated, cited items, then a grounded summary); confirmed
-per-meeting speaker names and corrections. No web server, search or automatic speaker
-identity assignment. See [scope](docs/PLAN.md) and [validation](docs/VALIDATION.md).
+per-meeting speaker names and corrections. Phase 3 adds a loopback-only web interface
+(dashboard, import, transcript viewer with audio, speaker correction, notes, export,
+settings). No search or automatic speaker identity assignment. See [scope](docs/PLAN.md) and [validation](docs/VALIDATION.md).
 
 ## Ubuntu installation
 
@@ -141,9 +142,35 @@ directory actually selects the weights. Change both label and registration for a
 Set `language="auto"` to detect language; alignment_language and registered CTC model
 must match. No alignment model is downloaded automatically on language mismatch.
 
-## Import, process and export
+## Web interface
 
-No web service is launched yet. The CLI is the supported interface:
+```bash
+.venv/bin/python -m pip install -e '.[web]'      # explicit, network-enabled dependency install
+.venv/bin/local-audio-notes --config config.toml serve --port 8765
+```
+
+Open the `http://127.0.0.1:8765/login?token=…` link the command prints. The token changes
+every start; other local users cannot sign in without it. The server only ever listens on
+127.0.0.1; for another machine use SSH port forwarding (`ssh -L 8765:127.0.0.1:8765 host`),
+never a public bind. Pages:
+
+- **Dashboard**: recent meetings, status, title/date filter, job counts, stage timings.
+- **Import**: upload audio and an optional WhisperBoard TXT/SRT/JSON transcript, choose a
+  mode, optionally start processing. Uploads need JavaScript; otherwise use `ingest`.
+- **Meeting**: audio player, process/cancel, title and date, notes with clickable source
+  timestamps, action-item table, speaker names, per-segment speaker corrections, Markdown
+  and JSON downloads.
+- **Settings**: models, language, GPU, diarization and chunking options. Saving rewrites
+  the configuration file (comments are not kept). Paths, the Ollama address, offline
+  enforcement and size limits are only editable in the file.
+
+Processing started from the browser runs in a separate `worker` process, which exits when
+the queue is empty and keeps running if the server stops. See
+[ADR-0003](docs/decisions/0003-phase3-loopback-web-interface.md) for the security model.
+
+## Import, process and export (CLI)
+
+The CLI covers everything the web interface does:
 
 ```bash
 meeting_id=$(.venv/bin/local-audio-notes --config config.toml ingest /absolute/path/meeting.m4a)
@@ -256,8 +283,7 @@ same-user filesystem storage remain necessary. Native decoders and libraries are
 OS-sandboxed by the default CLI. Draft classifications can still be wrong despite quote
 validation; review audio before treating extracted commitments as authoritative.
 
-Phase 3 adds the loopback FastAPI UI (dashboard, import, transcript viewer, speaker
-correction, export); Phase 4 adds search, optional local embeddings and hardening. These
-are intentionally unimplemented. The SQLite database holds quotes, titles and speaker
+Phase 4 adds search, optional local embeddings and further hardening; it is not
+implemented yet. The SQLite database holds quotes, titles and speaker
 names: protect it like the recordings. See [architecture](docs/ARCHITECTURE.md), [security](docs/SECURITY.md),
 [troubleshooting](docs/TROUBLESHOOTING.md), and [status](docs/STATUS.md).
