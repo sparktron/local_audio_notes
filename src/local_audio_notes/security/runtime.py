@@ -56,6 +56,7 @@ def enable_runtime(*, enforced: bool = False) -> None:
             "DO_NOT_TRACK": "1",
             "PYANNOTE_METRICS_ENABLED": "0",
             "OTEL_SDK_DISABLED": "true",
+            "FASTAPI_OTEL_AUTO_CONFIGURE": "false",
             "TOKENIZERS_PARALLELISM": "false",
             "WANDB_DISABLED": "true",
         }

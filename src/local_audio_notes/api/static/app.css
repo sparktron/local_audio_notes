@@ -1,0 +1,35 @@
+:root { --fg: #1d1f21; --muted: #5f6368; --line: #d9dce0; --bg: #ffffff; --panel: #f6f7f9;
+        --accent: #1f5fbf; --bad: #b3261e; --good: #1e7d32; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e6e6e6; --muted: #a0a4a8; --line: #3a3d41; --bg: #17181a; --panel: #202225;
+          --accent: #7aa7ff; --bad: #ff8a80; --good: #81c784; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 15px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;
+         gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+nav { display: flex; gap: 16px; align-items: center; }
+a { color: var(--accent); }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.badge { font-size: 12px; color: var(--muted); }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+         padding: 12px 16px; margin: 16px 0; }
+.stats { display: flex; flex-wrap: wrap; gap: 12px; }
+.stats div { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+.stats .n { font-size: 20px; font-weight: 600; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.transcript td:first-child { white-space: nowrap; }
+tr.corrected { outline: 2px solid var(--accent); }
+form.inline, .search { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+label { display: block; margin: 6px 0; }
+form.inline label { display: inline-block; }
+fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 12px 0; }
+input, select, button { font: inherit; }
+audio { width: 100%; margin-top: 12px; }
+.hint, small { color: var(--muted); }
+.error { color: var(--bad); }
+.ok { color: var(--good); }
+.state { font-weight: 600; }
+.state.failed, .state.cancelled { color: var(--bad); }
+.state.succeeded { color: var(--good); }

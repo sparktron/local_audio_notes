@@ -1,7 +1,7 @@
 # Security and privacy boundaries
 
 Runtime processing has no external inference API, analytics, automatic update check,
-model fetch, external UI asset or web service. The only supported HTTP target is
+model fetch or external UI asset. The optional web interface listens on 127.0.0.1 only. The only supported HTTP target is
 `http://127.0.0.1:11434`. HTTP redirects and environment proxies are disabled. Cloud
 Ollama model tags/remote aliases are rejected using both inventory and model metadata.
 The separately running Ollama server is a trust boundary: use a trusted installation,
@@ -81,8 +81,9 @@ links and table metacharacters; do not later render raw transcript HTML.
 ## Database
 
 `data/notes.sqlite3` is created 0600 by the application (symlinks refused) and, like the
-artifacts, contains transcript-derived text: extracted quotes, cached model responses,
-titles and confirmed speaker names. `status`/`jobs` output and stored error messages are
+artifacts, contains transcript text: the full-text search index of every segment (Phase 4),
+extracted quotes, cached model responses, optional embedding vectors, titles and confirmed
+speaker names. Embeddings are derived from transcript text and must be treated as sensitive. `status`/`jobs` output and stored error messages are
 limited to stage names, counts, durations and the application's own fixed error texts;
 library exception messages are never stored. `secure_delete` is enabled, but on SSDs and
 copy-on-write filesystems overwritten pages can persist: rely on full-volume encryption.
@@ -102,3 +103,42 @@ process inspection and privileged users can expose content. This scaffold does n
 VRAM, provide secure deletion, authenticate files, or defend against a malicious same-UID
 process. Do not share its writable data directory across users. No retention automation
 or automatic deletion is enabled; capacity and backup management are your responsibility.
+
+## Web interface
+
+`serve` binds 127.0.0.1 itself and cannot listen elsewhere. Access needs the per-launch
+sign-in link printed in the terminal; it sets an HttpOnly, SameSite=Strict session cookie.
+Requests with a Host other than 127.0.0.1/localhost are rejected (DNS rebinding). State
+changes are refused when Origin or Sec-Fetch-Site indicate another site and require a
+per-session CSRF token. Responses carry a strict Content-Security-Policy (no inline or
+third-party script, style or media; no framing), nosniff, no-referrer and no-store headers.
+FastAPI's interactive docs (CDN assets) and its built-in OpenTelemetry instrumentation are
+disabled, and `FASTAPI_OTEL_AUTO_CONFIGURE` is forced off. Templates autoescape transcript
+text, titles and names. Uploads stream into the private data directory under the configured
+byte limits, are validated by `ingest`, and the staged copies are deleted. Errors show the
+application's own messages or an exception class name, never library exception text.
+Request access logs are disabled. See ADR-0003 for the threat model and its limits: a
+malicious process running as the same user can read the token and the data directly.
+
+## Search, embeddings and offline evidence
+
+Search input is reduced to quoted words before reaching SQLite FTS5, so query syntax cannot
+be injected; results are escaped in the browser (match highlighting uses markers that are
+stripped from indexed text). Semantic search is off unless `embedding_model` names an
+installed local model; embedding requests go to the same fixed 127.0.0.1:11434 endpoint,
+with the same local-model verification as the notes model.
+
+Network behaviour has been **observed**, not only inspected, for specific runs on this host
+(see VALIDATION.md): `scripts/observe_network.sh` traces connect/sendto/sendmsg/sendmmsg/bind
+for a command and all children with strace, parsing each call's destination address
+(including unconnected UDP such as DNS) and ignoring payload bytes. On 2026-10-31 `ingest` made no network calls, `run`
+made one connection to 127.0.0.1:11434, and `serve` only bound its loopback port while
+handling requests; a positive control (`curl https://example.com`) was flagged, including
+its loopback DNS query. This is evidence about those runs, not proof for every code path,
+for real model inference (not yet run), or for the Ollama server process.
+
+The SHA-256 hash cache trusts device, inode, size, mtime and ctime. It detects changes
+made through normal file writes, renames or permission changes, but timestamps have kernel
+tick granularity; use `models-check --full` or `hash_cache = false` when every verification
+must reread the bytes. It is a corruption check, not authentication against a same-user
+attacker, as before.

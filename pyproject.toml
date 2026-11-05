@@ -17,6 +17,7 @@ inference = [
   "huggingface-hub>=0.34,<1",
   "transformers>=4.48,<5",
 ]
+web = ["fastapi>=0.115,<1", "uvicorn>=0.32,<1", "jinja2>=3.1,<4"]
 dev = [
   "pytest>=8,<10", "ruff>=0.12,<0.16", "numpy>=2.1,<3",
   "setuptools>=75,<83", "wheel>=0.45,<1",
@@ -28,10 +29,17 @@ local-audio-notes = "local_audio_notes.cli.main:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"local_audio_notes.api" = ["templates/*.html", "static/*.css", "static/*.js"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
 markers = ["integration: real local models and manually supplied audio; opt-in"]
+filterwarnings = [
+  # Starlette's TestClient deprecation notice about its httpx transport; tests only.
+  "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
 
 [tool.ruff]
 target-version = "py311"

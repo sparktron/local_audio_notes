@@ -1,5 +1,70 @@
 # Validation
 
+## Phase 4 — 2026-10-31
+
+- `pytest -q`: **220 passed, 1 skipped**; Ruff check and format clean. After merging the
+  review fixes from #1 and #2 (dependent-checkpoint invalidation, word-level speaker labels,
+  whole-word owners, settings paths, abandoned-job recovery, worker reload): **229 passed**;
+  after the #3 fixes (transcript-bound embeddings, participant filtering before the result
+  limit, semantic+category rejection): **232 passed**; after the second #2 fix (notes shown
+  only when they match the last export of current inputs): **233 passed**; after the second #3 fixes
+  (items hidden while their consolidation is superseded, trace parser): **235 passed**.
+- New tests: FTS search over transcripts, items and titles; diacritics/case; category, date
+  and participant filters (labels, confirmed names, corrections); FTS operators and column
+  syntax handled literally; empty queries rejected; highlight markers cannot be forged by
+  content; `reindex` rebuild and busy-meeting skip; semantic search with a deterministic fake
+  embedder (stored vectors, ranking, checkpoint reuse), pure-Python similarity fallback; CLI
+  and web search (escaping, highlighting, timestamp links, validation); static checks over
+  every source file (no shell, eval/exec, os.system, pickle; subprocess argument arrays) and
+  web assets (no external URLs, inline script or innerHTML); Python audit-hook recording of
+  a full mocked run plus web pages and search (only 127.0.0.1:11434 attempted); real
+  `OllamaClient` targets only that endpoint; symlinked meeting directories refused; private
+  database sidecars; hash cache hits, invalidation on content and metadata change, corrupt
+  cache tolerance, cached model verification still detecting tampering.
+- Network observation with `scripts/observe_network.sh` (strace 5.16, this host, no Ollama
+  running, no models installed):
+  - `ingest tone.m4a`: no network system calls at all.
+  - `run <id>`: one connect to `127.0.0.1:11434`, then the expected preflight failure.
+  - `serve --port 8798` for 10 s while answering 3 curl requests: only bound 127.0.0.1:8798;
+    no outbound endpoints.
+  - Positive control `curl https://example.com` (one deliberate outbound request): flagged,
+    including `127.0.0.53:53` (DNS via systemd-resolved) and remote IPv4/IPv6 addresses.
+  - After the PR #3 review: unconnected `sendto` and `sendmsg` destinations are parsed (the
+    first parser skipped them). A loopback-only probe (UDP `sendto` to 127.0.0.2:9 with a
+    forged sockaddr in the payload, `sendmsg` to 127.0.0.3:9, IPv6 `sendto` to ::1:9) was
+    reported clean with exit 0 by the old parser and flagged with exit 1 by the new one;
+    the forged payload was not counted as an endpoint.
+- Benchmarks (`scripts/benchmark_local.py --dir data`, synthetic data, 20 CPUs, SQLite 3.53.1):
+  SHA-256 of 1 GiB 2.62 s (391 MiB/s, warm cache), hash-cache hit about 3 µs; FTS5 build of
+  200,000 segments 0.82 s, median query 38 ms; numpy cosine search 100,000 × 768 in 0.20 s.
+
+Not demonstrated in Phase 4: a real embedding model, search relevance on real meetings,
+observation of real inference runs, cold-disk hashing speed.
+
+## Phase 3 — 2026-10-31
+
+- `pytest -q`: **149 passed, 1 skipped**. Ruff check and format clean.
+- Dependencies installed explicitly into the venv: FastAPI 0.162.0, Starlette 1.10.0,
+  uvicorn 0.54.0, Jinja2 3.1.6 (`requirements-dev.lock` regenerated). FastAPI now depends on
+  `opentelemetry-api` (API only, no SDK or exporter installed); its instrumentation is
+  disabled in the app and its environment auto-configuration forced off.
+- Real server smoke test (`serve --port 8799`, network guard active, no Ollama): listened on
+  127.0.0.1 only (`ss`); unauthenticated 401; Host `evil.example` 400; sign-in 303 with
+  cookie; CSP, X-Frame-Options present, no Server header; raw upload accepted; import with a
+  cross-site Origin 403; import 303 to the meeting; the real `worker` subprocess ran the job,
+  which failed safely at preflight (Ollama unavailable); staged uploads removed.
+- Tests: sign-in and cookie flags, security headers, no external resources, docs/OpenAPI
+  absent, telemetry switches off, DNS-rebinding Host, cross-site Origin and Sec-Fetch-Site,
+  missing/forged CSRF, upload size and kind limits, non-audio upload, forged upload IDs,
+  traversal and unknown meetings, full import → worker → notes flow (mocked inference),
+  escaped script in titles, speaker names, corrections (including invalid targets), Markdown
+  and JSON downloads, audio range requests, process/cancel, settings validation and fixed
+  fields, read-only settings without a config file, error redaction, stale upload cleanup,
+  launcher argument array, port validation.
+
+Not demonstrated: visual/browser rendering, accessibility, large uploads near the 2 GiB
+limit, long transcripts in the page, behaviour behind proxies.
+
 ## Phase 2 — 2026-10-31
 
 Run on the inspected workstation in this session's shell, Python 3.12.13 venv.

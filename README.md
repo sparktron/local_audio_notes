@@ -2,9 +2,10 @@
 
 Private meeting audio → local transcription and alignment → anonymous speakers →
 grounded local Ollama evidence → cited draft notes → Markdown/JSON.
-**Phases 1 and 2 implemented** (CLI, SQLite, durable jobs, evidence extraction).
+**Phases 1–4 implemented** (CLI, SQLite, durable jobs, evidence extraction, loopback web UI,
+search, optional local embeddings, offline observation tooling).
 
-This is a working CLI implementation with tested media handling and mocked inference
+This is a working CLI and local web implementation with tested media handling and mocked inference
 boundaries. Actual model inference, GPU integration, diarization quality and isolated
 offline inference are **not yet verified**. No models were downloaded during development.
 Do not treat this scaffold as a finished production service.
@@ -15,8 +16,11 @@ strict timed transcript import; private artifacts. Phase 2 adds a private SQLite
 migrations; a durable job queue with cancellation, restart recovery and per-stage metrics;
 hash-verified stage checkpoints so failed or interrupted work resumes instead of restarting;
 two-stage evidence extraction (validated, cited items, then a grounded summary); confirmed
-per-meeting speaker names and corrections. No web server, search or automatic speaker
-identity assignment. See [scope](docs/PLAN.md) and [validation](docs/VALIDATION.md).
+per-meeting speaker names and corrections. Phase 3 adds a loopback-only web interface
+(dashboard, import, transcript viewer with audio, speaker correction, notes, export,
+settings). Phase 4 adds SQLite full-text search with participant/category/date filters,
+optional semantic search with a locally installed embedding model, a stat-keyed hash cache,
+and a strace-based network observation script. No automatic speaker identity assignment. See [scope](docs/PLAN.md) and [validation](docs/VALIDATION.md).
 
 ## Ubuntu installation
 
@@ -141,9 +145,55 @@ directory actually selects the weights. Change both label and registration for a
 Set `language="auto"` to detect language; alignment_language and registered CTC model
 must match. No alignment model is downloaded automatically on language mismatch.
 
-## Import, process and export
+## Web interface
 
-No web service is launched yet. The CLI is the supported interface:
+```bash
+.venv/bin/python -m pip install -e '.[web]'      # explicit, network-enabled dependency install
+.venv/bin/local-audio-notes --config config.toml serve --port 8765
+```
+
+Open the `http://127.0.0.1:8765/login?token=…` link the command prints. The token changes
+every start; other local users cannot sign in without it. The server only ever listens on
+127.0.0.1; for another machine use SSH port forwarding (`ssh -L 8765:127.0.0.1:8765 host`),
+never a public bind. Pages:
+
+- **Dashboard**: recent meetings, status, title/date filter, job counts, stage timings.
+- **Import**: upload audio and an optional WhisperBoard TXT/SRT/JSON transcript, choose a
+  mode, optionally start processing. Uploads need JavaScript; otherwise use `ingest`.
+- **Meeting**: audio player, process/cancel, title and date, notes with clickable source
+  timestamps, action-item table, speaker names, per-segment speaker corrections, Markdown
+  and JSON downloads.
+- **Settings**: models, language, GPU, diarization and chunking options. Saving rewrites
+  the configuration file (comments are not kept). Paths, the Ollama address, offline
+  enforcement and size limits are only editable in the file.
+
+Processing started from the browser runs in a separate `worker` process, which exits when
+the queue is empty and keeps running if the server stops. See
+[ADR-0003](docs/decisions/0003-phase3-loopback-web-interface.md) for the security model.
+
+## Search
+
+```bash
+.venv/bin/local-audio-notes --config config.toml search "migration deadline"
+.venv/bin/local-audio-notes --config config.toml search "review" --participant "Speaker 2" --from 2026-10-01
+.venv/bin/local-audio-notes --config config.toml search "owner" --category action
+.venv/bin/local-audio-notes --config config.toml reindex     # rebuild indexes from verified artifacts
+```
+
+Results cover meeting titles and dates, transcript segments and extracted items, each with
+the meeting ID and the segment/item and start time; the web Search page links straight to the
+timestamp in the meeting's player. Words match literally (no query operators). Participants
+match speaker labels or confirmed names, including segment corrections. Meetings processed
+before upgrading are indexed by `reindex`.
+
+Semantic search is optional. Set `embedding_model` to an embedding model **already installed**
+in your local Ollama (for example one listed by `ollama-models`); nothing is pulled. New jobs
+then store embeddings after the notes, and `reindex --embeddings` adds them to existing
+meetings. Use `search --semantic` or the "Similar meaning" box.
+
+## Import, process and export (CLI)
+
+The CLI covers everything the web interface does:
 
 ```bash
 meeting_id=$(.venv/bin/local-audio-notes --config config.toml ingest /absolute/path/meeting.m4a)
@@ -228,7 +278,14 @@ failed import are cleaned up; caller-owned recordings are never deleted.
 .venv/bin/ruff format --check .
 .venv/bin/local-audio-notes --config config.toml offline-check
 bash scripts/verify_offline.sh --config config.toml
+bash scripts/observe_network.sh -- .venv/bin/local-audio-notes --config config.toml run "$meeting_id"
+.venv/bin/python scripts/benchmark_local.py --dir data   # synthetic hashing/search timings
 ```
+
+`observe_network.sh` runs a command under strace and lists every network endpoint it and its
+children contacted; it exits 1 for anything but loopback Ollama or a port the command bound.
+It needs the `strace` package and observes only the run you perform.
+`models-check` reuses cached hashes for unchanged files; `models-check --full` rehashes all.
 
 The strict script is expected to fail in the normal host namespace. See
 [security instructions](docs/SECURITY.md) for an isolated namespace containing both
@@ -256,8 +313,7 @@ same-user filesystem storage remain necessary. Native decoders and libraries are
 OS-sandboxed by the default CLI. Draft classifications can still be wrong despite quote
 validation; review audio before treating extracted commitments as authoritative.
 
-Phase 3 adds the loopback FastAPI UI (dashboard, import, transcript viewer, speaker
-correction, export); Phase 4 adds search, optional local embeddings and hardening. These
-are intentionally unimplemented. The SQLite database holds quotes, titles and speaker
-names: protect it like the recordings. See [architecture](docs/ARCHITECTURE.md), [security](docs/SECURITY.md),
+All four requested phases are implemented; real-model validation is still outstanding
+(see [status](docs/STATUS.md)). The SQLite database holds full transcript text (for
+search), quotes, titles and speaker names: protect it like the recordings. See [architecture](docs/ARCHITECTURE.md), [security](docs/SECURITY.md),
 [troubleshooting](docs/TROUBLESHOOTING.md), and [status](docs/STATUS.md).

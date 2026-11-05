@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Search{% endblock %}
+{% block content %}
+<h1>Search</h1>
+<form method="get" action="/search" class="search">
+  <input type="search" name="q" value="{{ q }}" placeholder="Words, names, topics" maxlength="500" required>
+  <label>Participant <input name="participant" value="{{ participant }}" placeholder="Speaker 2 or a confirmed name" maxlength="100"></label>
+  <label>Extracted items only
+    <select name="category">
+      <option value="">— transcripts and items —</option>
+      {% for c in categories %}<option value="{{ c }}"{% if c == category %} selected{% endif %}>{{ c.replace("_", " ") }}</option>{% endfor %}
+    </select></label>
+  <label>From <input type="date" name="date_from" value="{{ date_from }}"></label>
+  <label>To <input type="date" name="date_to" value="{{ date_to }}"></label>
+  <label><input type="checkbox" name="semantic"{% if semantic %} checked{% endif %}{% if not semantic_available %} disabled{% endif %}>
+    Similar meaning{% if not semantic_available %} (set an embedding model in settings){% endif %}</label>
+  <button type="submit">Search</button>
+</form>
+<p class="hint">Words are matched literally (no operators). Dates use the meeting date you set.
+Semantic search compares local embeddings; nothing leaves this machine.</p>
+
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if q and not error %}
+  {% if hits %}
+  <table>
+    <thead><tr><th>Meeting</th><th>Where</th><th>Speaker</th><th>Match</th></tr></thead>
+    <tbody>
+    {% for h in hits %}
+    <tr>
+      <td>{{ h.title or "Untitled " ~ h.meeting_id[:8] }}{% if h.meeting_date %}<br><small>{{ h.meeting_date }}</small>{% endif %}</td>
+      <td>
+        {% if h.kind == "meeting" %}<a href="/meetings/{{ h.meeting_id }}">meeting</a>
+        {% elif h.kind == "item" %}<a href="/meetings/{{ h.meeting_id }}#{{ h.ref }}">{{ h.category.replace("_", " ") }} {{ h.ref }}</a>{% if h.start is not none %}<br><small>{{ timestamp(h.start) }}</small>{% endif %}
+        {% else %}<a href="/meetings/{{ h.meeting_id }}#{{ h.ref }}">{{ timestamp(h.start) }}</a>{% if h.kind == "semantic" %}<br><small>similarity {{ h.score }}</small>{% endif %}
+        {% endif %}
+      </td>
+      <td>{{ h.speaker or "—" }}</td>
+      <td>{{ h.snippet|highlight }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>No matches.</p>{% endif %}
+{% endif %}
+{% endblock %}

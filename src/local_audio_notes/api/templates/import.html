@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Import{% endblock %}
+{% block content %}
+<h1>Import a recording</h1>
+<p>Files are copied into private local storage and validated by content, not extension.
+The original file on disk is never modified or deleted.</p>
+<form method="post" action="/import" id="import-form"
+      data-csrf="{{ csrf }}" data-audio-limit="{{ audio_limit }}" data-transcript-limit="{{ transcript_limit }}">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="audio_upload" value="">
+  <input type="hidden" name="transcript_upload" value="">
+  <input type="hidden" name="transcript_kind" value="">
+  <label>Audio (WAV, M4A, MP3, FLAC)
+    <input type="file" id="audio-file" accept=".wav,.m4a,.mp3,.flac,audio/*" required></label>
+  <label>Optional transcript (WhisperBoard TXT, SRT or JSON)
+    <input type="file" id="transcript-file" accept=".txt,.srt,.json"></label>
+  <fieldset>
+    <legend>Processing</legend>
+    <label><input type="checkbox" name="process" checked> Start processing after import</label>
+    <label>Mode
+      <select name="mode">
+        <option value="transcribe">Transcribe locally</option>
+        <option value="align">Align the attached timed transcript (SRT/JSON)</option>
+        <option value="compare">Transcribe locally and compare with the attached transcript</option>
+      </select></label>
+    <p class="hint">Model, language, speaker-count and GPU options are on the <a href="/settings">settings</a> page.</p>
+  </fieldset>
+  <button type="submit">Import</button>
+  <progress id="upload-progress" value="0" max="100" hidden></progress>
+  <p id="upload-status" class="hint" role="status"></p>
+</form>
+<noscript><p class="error">Uploading needs JavaScript. Use the CLI <code>ingest</code> command instead.</p></noscript>
+{% endblock %}

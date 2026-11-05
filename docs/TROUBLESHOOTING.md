@@ -69,3 +69,28 @@
 - **Sensitive errors suppressed**: native errors can include transcript text, tokens or
   paths, so the CLI emits only a safe message/error class. Inspect private artifacts locally.
   Avoid publishing them in bug reports. `doctor` prints only tool/package/hardware information.
+- **Web: "Sign in required"**: open the link printed by `serve`; it changes on every start.
+  Bookmarking `http://127.0.0.1:8765/` works only while the session cookie is valid.
+- **Web: "Invalid host header" or 403 on forms**: use `127.0.0.1` or `localhost` with the
+  served port. Browser extensions or proxies that rewrite Origin cause 403s by design.
+- **Web: port in use**: choose another with `serve --port`; the server never falls back to
+  another interface.
+- **Web: job stays queued or "running"**: the server starts a `worker` process when jobs are
+  queued and checks every 10 seconds, first requeueing jobs whose worker died (no process
+  holds their meeting lock). Settings saved in the browser apply from the next job a worker
+  claims; saving writes `data_dir`/`models_dir` as absolute paths. `jobs` and `status` show its progress; a `worker` started
+  from the CLI works too.
+- **Web dependencies missing**: `.venv/bin/python -m pip install -e '.[web]'` (explicit,
+  network-enabled installation).
+- **Search finds nothing for older meetings**: meetings processed before Phase 4 have no
+  index rows. Run `reindex`. Search matches whole words literally; try fewer words.
+- **"Semantic search needs embedding_model"**: set `embedding_model` to an embedding model
+  already installed in local Ollama, then `reindex --embeddings` for existing meetings.
+  "No embeddings for the current embedding model" means the model or its digest changed.
+- **`observe_network.sh` reports unexpected endpoints**: inspect the listed addresses. A
+  `127.0.0.53:53` entry is a DNS lookup through systemd-resolved. The application itself
+  should show only 127.0.0.1:11434 and its own bound port; investigate anything else before
+  processing sensitive recordings, and consider the isolated namespace in SECURITY.md.
+- **Model verification is slow**: the first `models-check` or job after installing hashes
+  every model file (about 2.6 s per GiB measured here); later runs reuse cached hashes for
+  unchanged files. `models-check --full` deliberately rehashes everything.

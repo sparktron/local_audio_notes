@@ -61,3 +61,41 @@ validation tests. Design and trade-offs: [ADR-0002](decisions/0002-phase2-eviden
 Not in Phase 2: web UI (Phase 3), search/embeddings/OS sandbox validation (Phase 4),
 retention policies and deletion (no request yet), real-model validation (needs models and
 consented, annotated audio).
+
+## Phase 3 — web interface (requested and implemented 2026-10-31)
+
+Scope: dashboard, import, transcript viewer, speaker correction, notes and export, settings.
+Security model: [ADR-0003](decisions/0003-phase3-loopback-web-interface.md).
+
+1. `serve`: FastAPI on a self-bound 127.0.0.1 socket; per-launch sign-in token; Host,
+   Origin/Sec-Fetch-Site and CSRF checks; strict CSP; docs, OpenAPI and telemetry disabled.
+2. Pages: dashboard (meetings, status, title/date filter, job counts, stage timings), import
+   (streamed uploads, transcript attachment, mode, start processing), meeting (audio,
+   process/cancel, details, notes, action items, speaker names, segment corrections,
+   Markdown/JSON download), settings (bounded editable subset, written to the config file).
+3. Processing via a `worker` subprocess launched with fixed arguments.
+4. Tests for authentication, rebinding, cross-site and CSRF refusal, upload limits,
+   traversal, escaping, the full import → process → notes flow with mocked inference,
+   corrections, settings validation, error redaction and the launcher.
+
+Not in Phase 3: full-text and semantic search (Phase 4).
+
+## Phase 4 — search and hardening (requested and implemented 2026-10-31)
+
+Scope: full-text search, optional local embeddings, security tests, offline validation,
+performance improvements. Design and measurements:
+[ADR-0004](decisions/0004-phase4-search-and-hardening.md).
+
+1. Migration 3: FTS5 tables for segments and items; embedding table (migration 2 is the
+   speaker-label inventory added by the PR #1 review fixes).
+2. Search (`search/index.py`, CLI `search`/`reindex`, web Search page): titles, dates,
+   transcript text, participants (labels, confirmed names, corrections), extracted items by
+   category, optional semantic similarity; results link to meeting and timestamp.
+3. Optional embeddings via an installed local Ollama model, after notes, checkpointed.
+4. Security tests: static checks (no shell, eval, pickle; subprocess argument arrays; no
+   external URLs or inline script in web assets), FTS syntax handling, search escaping,
+   symlinked meeting directories, private DB sidecars.
+5. Offline validation: Python audit-hook recording across a full mocked run, web and search;
+   `scripts/observe_network.sh` strace observation of real commands, with a positive control.
+6. Performance: stat-keyed hash cache for model weights, recordings and checkpoints;
+   `scripts/benchmark_local.py` measurements.

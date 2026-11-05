@@ -155,8 +155,19 @@ class FakeOllama:
         self.payloads: list[dict] = []
         self.fail_on_call: int | None = None
 
-    def require_local_model(self) -> str:
-        return "qwen2.5:14b@sha256:fixture"
+    def require_local_model(self, name=None) -> str:
+        return f"{name or 'qwen2.5:14b'}@sha256:fixture"
+
+    def embed(self, model, texts):
+        """Deterministic bag-of-words vectors: shared words give similar vectors."""
+        self.embedded = getattr(self, "embedded", 0) + len(texts)
+        vectors = []
+        for text in texts:
+            vector = [0.0] * 32
+            for word in text.lower().split():
+                vector[sum(map(ord, word.strip(".,?!"))) % 32] += 1.0
+            vectors.append(vector)
+        return vectors
 
     def generate(self, system, content, schema):
         self.payloads.append(json.loads(content))
@@ -222,7 +233,9 @@ def mocked(monkeypatch, transcript, tmp_path):
         calls.diarize += 1
         return TURNS
 
-    monkeypatch.setattr(pipeline, "verify_models", lambda root: {"diarization": tmp_path})
+    monkeypatch.setattr(
+        pipeline, "verify_models", lambda root, cache=False: {"diarization": tmp_path}
+    )
     monkeypatch.setattr(pipeline, "model_fingerprints", lambda root: dict.fromkeys(KINDS, "fp"))
     monkeypatch.setattr(pipeline, "WhisperXBackend", Backend)
     monkeypatch.setattr(pipeline, "diarize", diarize)
