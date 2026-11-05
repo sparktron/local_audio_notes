@@ -1,11 +1,8 @@
-import json
-import math
 from typing import Any
-
-import httpx
 
 from local_audio_notes.config import Settings
 from local_audio_notes.errors import NotesError
+from local_audio_notes.llm.http import local_json, valid_vectors
 
 
 class OllamaClient:
@@ -13,24 +10,7 @@ class OllamaClient:
         self.settings = settings
 
     def request(self, method: str, endpoint: str, payload: dict[str, Any] | None = None) -> Any:
-        try:
-            with (
-                httpx.Client(
-                    trust_env=False, follow_redirects=False, timeout=self.settings.ollama_timeout
-                ) as client,
-                client.stream(
-                    method, self.settings.ollama_url + endpoint, json=payload
-                ) as response,
-            ):
-                response.raise_for_status()
-                chunks = bytearray()
-                for block in response.iter_bytes():
-                    chunks.extend(block)
-                    if len(chunks) > 2 * 1024**2:
-                        raise NotesError("Ollama response exceeds limit")
-                return json.loads(chunks)
-        except (httpx.HTTPError, ValueError):
-            raise NotesError("Local Ollama API unavailable or returned invalid data") from None
+        return local_json(self.settings, "Ollama", method, endpoint, payload)
 
     def models(self) -> list[dict[str, Any]]:
         value = self.request("GET", "/api/tags")
@@ -99,12 +79,6 @@ class OllamaClient:
             {"model": model, "input": texts, "keep_alive": 0, "truncate": True},
         )
         vectors = value.get("embeddings") if isinstance(value, dict) else None
-        if (
-            not isinstance(vectors, list)
-            or len(vectors) != len(texts)
-            or not all(isinstance(v, list) and v for v in vectors)
-            or len({len(v) for v in vectors}) != 1
-            or not all(isinstance(x, int | float) and math.isfinite(x) for v in vectors for x in v)
-        ):
+        if not valid_vectors(vectors, len(texts)):
             raise NotesError("Ollama returned invalid embeddings")
         return vectors

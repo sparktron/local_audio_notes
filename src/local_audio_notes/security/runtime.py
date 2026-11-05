@@ -9,6 +9,7 @@ from typing import Any
 from local_audio_notes.errors import NotesError
 
 _installed = False
+_llm_port = 11434
 
 
 def isolated_network() -> bool:
@@ -25,7 +26,7 @@ def isolated_network() -> bool:
 
 def _audit(event: str, args: tuple[Any, ...]) -> None:
     if event == "socket.getaddrinfo" and (
-        args[0] not in ("127.0.0.1", b"127.0.0.1") or args[1] != 11434
+        args[0] not in ("127.0.0.1", b"127.0.0.1") or args[1] != _llm_port
     ):
         raise NotesError("Outbound network lookup blocked")
     if event in {"socket.connect", "socket.sendto"}:
@@ -35,13 +36,14 @@ def _audit(event: str, args: tuple[Any, ...]) -> None:
         if (
             sock.family != socket.AF_INET
             or sock.type & socket.SOCK_STREAM == 0
-            or address != ("127.0.0.1", 11434)
+            or address != ("127.0.0.1", _llm_port)
         ):
             raise NotesError("Outbound network connection blocked")
 
 
-def enable_runtime(*, enforced: bool = False) -> None:
-    global _installed
+def enable_runtime(*, enforced: bool = False, llm_port: int = 11434) -> None:
+    """Install the guard. `llm_port` is the configured local LLM server's loopback port."""
+    global _installed, _llm_port
     if os.geteuid() == 0:
         raise NotesError("Run the application as an unprivileged user")
     if enforced and not isolated_network():
@@ -62,6 +64,7 @@ def enable_runtime(*, enforced: bool = False) -> None:
         }
     )
     logging.disable(logging.CRITICAL)  # libraries may log transcript text and file paths
+    _llm_port = llm_port
     if not _installed:
         sys.addaudithook(_audit)
         _installed = True

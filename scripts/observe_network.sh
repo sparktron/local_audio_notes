@@ -5,10 +5,12 @@
 #
 # Records connect/sendto/sendmsg/sendmmsg/bind with strace, then prints every distinct endpoint
 # (parsed by network_trace.py, including unconnected UDP destinations such as DNS queries).
-# Exit status: 0 when no IP traffic goes anywhere except loopback port 11434 (Ollama) or a
+# Exit status: 0 when no IP traffic goes anywhere except loopback port $LLM_PORT (default 11434,
+# Ollama; set it to the configured LM Studio port when llm_backend = "lmstudio") or a
 # loopback port the command itself bound (the web server); 1 otherwise; 2 on usage errors.
 # This observes only the run you perform: other code paths, other machines and the Ollama
-# server process are not covered. The trace (socket paths, ports) is deleted afterwards.
+# or LM Studio server process are not covered. The trace (socket paths, ports) is deleted
+# afterwards.
 set -euo pipefail
 if [[ "${1:-}" == "--" ]]; then shift; fi
 if [[ $# -eq 0 ]]; then
@@ -24,4 +26,4 @@ trap 'rm -rf -- "$workdir"' EXIT
 status=0
 strace -f -qq -s 256 -e trace=connect,sendto,sendmsg,sendmmsg,bind -o "$workdir/trace" -- "$@" \
   >"$workdir/stdout" 2>"$workdir/stderr" || status=$?
-python3 -I "$(dirname -- "$0")/network_trace.py" "$workdir/trace" "$status"
+python3 -I "$(dirname -- "$0")/network_trace.py" "$workdir/trace" "$status" "${LLM_PORT:-11434}"

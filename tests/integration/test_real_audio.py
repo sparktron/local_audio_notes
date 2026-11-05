@@ -20,7 +20,7 @@ def test_real_local_audio_quality():
     if not config or not audio:
         pytest.skip("Set LAN_TEST_CONFIG and LAN_TEST_AUDIO to opt into actual inference")
     settings = load_settings(Path(config))
-    enable_runtime(enforced=settings.offline_enforced)
+    enable_runtime(enforced=settings.offline_enforced, llm_port=settings.llm_port)
     identifier = ingest(Path(audio), settings)
     started = time.monotonic()
     process(settings, identifier)

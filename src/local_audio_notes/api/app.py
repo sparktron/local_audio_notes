@@ -35,7 +35,7 @@ from local_audio_notes.errors import NotesError
 from local_audio_notes.extraction.grounding import normalize
 from local_audio_notes.ingestion.importer import ingest
 from local_audio_notes.jobs.queue import cancel, describe, enqueue, lock_path, recover
-from local_audio_notes.llm.ollama import OllamaClient
+from local_audio_notes.llm import llm_client
 from local_audio_notes.notes.render import timestamp
 from local_audio_notes.pipeline import export_notes, get_meeting, verified_checkpoint
 from local_audio_notes.schemas import CATEGORIES, Transcript
@@ -303,7 +303,7 @@ def create_app(
                         date_from=date_from,
                         date_to=date_to,
                         semantic=semantic == "on",
-                        embedder=OllamaClient(current) if semantic == "on" else None,
+                        embedder=llm_client(current) if semantic == "on" else None,
                     )
             except NotesError as found:
                 error = str(found)
@@ -601,7 +601,7 @@ def create_app(
         with contextlib.suppress(NotesError):
             installed = sorted(
                 str(m.get("name"))
-                for m in OllamaClient(current).models()
+                for m in llm_client(current).models()
                 if not (m.get("remote_model") or m.get("remote_host"))
             )
         return page(

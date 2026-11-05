@@ -29,7 +29,7 @@ from local_audio_notes.jobs.queue import (
     recover,
     work,
 )
-from local_audio_notes.llm.ollama import OllamaClient
+from local_audio_notes.llm import llm_client
 from local_audio_notes.models import (
     KINDS,
     install_assets,
@@ -353,7 +353,7 @@ def _queue_command(args: argparse.Namespace, settings: Settings) -> int:
                 date_from=args.date_from,
                 date_to=args.date_to,
                 semantic=args.semantic,
-                embedder=OllamaClient(settings) if args.semantic else None,
+                embedder=llm_client(settings) if args.semantic else None,
                 limit=args.limit,
             )
             for hit in hits:
@@ -361,7 +361,7 @@ def _queue_command(args: argparse.Namespace, settings: Settings) -> int:
                 value["snippet"] = value["snippet"].replace(MARK_START, "[").replace(MARK_END, "]")
                 print(json.dumps(value, ensure_ascii=False))
         elif args.command == "reindex":
-            embedder = OllamaClient(settings) if args.embeddings else None
+            embedder = llm_client(settings) if args.embeddings else None
             if args.embeddings and not settings.embedding_model:
                 raise NotesError("Set embedding_model to an installed local model first")
             print(json.dumps(reindex(settings, connection, embedder)))
@@ -404,7 +404,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             enable_runtime(
                 enforced=settings.offline_enforced
-                or (args.command == "offline-check" and args.enforced)
+                or (args.command == "offline-check" and args.enforced),
+                llm_port=settings.llm_port,
             )
         if args.command == "doctor":
             print(json.dumps(doctor(), indent=2))
@@ -428,7 +429,7 @@ def main(argv: list[str] | None = None) -> int:
             cache = settings.hash_cache and not args.full
             print(json.dumps({"verified": list(verify_models(settings.models_dir, cache=cache))}))
         elif args.command == "ollama-models":
-            for model in OllamaClient(settings).models():
+            for model in llm_client(settings).models():
                 print(
                     json.dumps(
                         {

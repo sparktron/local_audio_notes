@@ -24,7 +24,7 @@ from local_audio_notes.errors import Cancelled, Interrupted, NotesError
 from local_audio_notes.extraction.consolidate import CONSOLIDATION_VERSION, consolidate
 from local_audio_notes.extraction.evidence import PROMPT_VERSION, extract
 from local_audio_notes.ingestion.transcripts import parse_transcript
-from local_audio_notes.llm.ollama import OllamaClient
+from local_audio_notes.llm import LLMClient, llm_client
 from local_audio_notes.models import model_fingerprints, verify_models
 from local_audio_notes.notes.render import export_json, render_markdown
 from local_audio_notes.notes.summary import SUMMARY_VERSION, summarize
@@ -472,7 +472,7 @@ def _audio_stages(run: Run, mode: str) -> None:
 
 
 def _notes_stages(
-    run: Run, client: OllamaClient, model_key: str, embed_key: str | None = None
+    run: Run, client: LLMClient, model_key: str, embed_key: str | None = None
 ) -> None:
     settings, meeting_id = run.settings, run.meeting["id"]
     transcript_sha = run.outputs["attributing"]["transcript.json"]
@@ -582,7 +582,7 @@ def run_job(
     try:
         verify_originals(directory, meeting, hashes)
         # Check local models before spending hours on audio stages.
-        client = OllamaClient(settings)
+        client = llm_client(settings)
         model_key = client.require_local_model()
         embed_key = (
             client.require_local_model(settings.embedding_model)
@@ -613,7 +613,7 @@ def run_job(
 def reindex(
     settings: Settings,
     connection: sqlite3.Connection,
-    embedder: OllamaClient | None = None,
+    embedder: LLMClient | None = None,
 ) -> dict[str, int]:
     """Rebuild search indexes from verified artifacts (and embeddings when an embedder is
     given). Meetings with a running job are skipped, never waited on."""

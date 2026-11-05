@@ -22,7 +22,11 @@ Phase 1 was written in a separate Codex session.
 - Phase 4: SQLite FTS5 search (CLI, web) with participant/category/date filters and
   timestamp links; optional local-embedding semantic search; `reindex`; stat-keyed hash cache;
   strace network observation script; synthetic benchmark script; hardening tests.
-- 235 tests pass, 1 opt-in integration test skipped (after the PR #1–#3 review fixes); Ruff check/format clean. See VALIDATION.md.
+- LLM backends (2026-11-05): `llm_backend = "lmstudio"` selects an LM Studio/Bionic client
+  (`/v1/chat/completions` with `json_schema`, `/v1/embeddings`, `/api/v0/models`) next to
+  Ollama. The loopback port in `ollama_url` is configurable (1024–65535) and the network guard
+  and `observe_network.sh` (`LLM_PORT`) allow only that port.
+- 269 tests pass, 1 opt-in integration test skipped; Ruff check/format clean. See VALIDATION.md.
 
 ## Active work
 
@@ -31,12 +35,19 @@ Phases 3 and 4 on master.
 
 ## Known limitations and unverified
 
-- Still no real inference: inference stack and models are not installed and Ollama is not
+- Still no real inference. The inference stack is installed in `.venv` (2026-11-05: torch
+  2.8.0+cu128 with CUDA on the RTX 3090, whisperx 3.8.6, pyannote.audio 4.0.7, silero-vad
+  6.2.0, ctranslate2 4.8.5; `pip check` clean), but no models are prepared and Ollama is not
   installed. All model behavior in tests is mocked. Real extraction quality, rejection rates,
   consolidation on paraphrased repeats and summary usefulness with a Qwen 14B-class model are
   unmeasured. Performance (stage timings, GPU memory) has not been measured.
-- `uv.lock` resolves all extras, including `inference`, but that environment has never been
-  installed or tested. `requirements-dev.lock` remains the tested development environment.
+- `uv.lock` resolves all extras, including `inference`. The venv was installed with pip from
+  `pyproject.toml`, not from `uv.lock`; `requirements-dev.lock` remains the tested dev set.
+- The LM Studio client is tested against mocked responses only. Not verified against a running
+  Bionic: whether it serves `/api/v0/models`, how cloud or LM Link models appear there, its
+  server port (Bionic's last recorded port was 33587, LM Studio's configured port is 1234),
+  and `json_schema` output with the installed Qwen models. LM Studio cannot set context per
+  request and keeps models loaded; its server config had prompt logging on.
 - Grounding checks catch fabricated quotes, names, numbers and dates, not misclassification of
   real quotes or lowercase paraphrase. Sentence-start exemptions are English-only.
 - Diarization OOM recovery is tested with a fake pipeline only; pyannote 4 batch-size attribute
@@ -54,8 +65,9 @@ Phases 3 and 4 on master.
 
 ## Next (only on explicit request)
 
-Merge PR #4 when ready. Install the inference stack, Ollama and approved models, select an
-installed local model, and run the opt-in integration test on consented audio to obtain real
+Merge PR #4 when ready. Start Bionic's server and check the LM Studio client against it
+(model list, one structured request), with prompt logging off. Prepare the approved speech
+models, select an installed local LLM, and run the opt-in integration test on consented audio to obtain real
 stage timings and review rejection counts, observing that run with
 `scripts/observe_network.sh`. Free GPU memory first: on 2026-11-05 an LM Studio `llama-server`
 held about 17.7 GB of the 24 GB.

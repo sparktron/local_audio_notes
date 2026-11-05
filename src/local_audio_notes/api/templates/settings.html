@@ -31,7 +31,7 @@
     <label>Maximum speakers <input type="number" name="max_speakers" min="1" max="32" value="{{ values.max_speakers }}"></label>
   </fieldset>
   <fieldset>
-    <legend>Local language model (Ollama on 127.0.0.1)</legend>
+    <legend>Local language model ({{ values.llm_backend }} on 127.0.0.1)</legend>
     <label>Model
       {% if installed %}
       <select name="ollama_model">
@@ -40,7 +40,7 @@
       </select>
       {% else %}
       <input name="ollama_model" value="{{ values.ollama_model }}">
-      <span class="hint">Ollama is not reachable; models cannot be listed. Nothing is ever downloaded.</span>
+      <span class="hint">The local model server is not reachable; models cannot be listed. Nothing is ever downloaded.</span>
       {% endif %}
     </label>
     <label>Embedding model for semantic search (optional, must already be installed)
@@ -61,7 +61,7 @@
 <p class="hint">Change these in the configuration file and restart. They are not editable from the browser.</p>
 <table>
   <tbody>
-  {% for key in ["data_dir", "models_dir", "ollama_url", "offline_enforced", "max_audio_bytes", "max_audio_seconds", "max_transcript_bytes", "ollama_context", "ollama_predict", "job_max_attempts"] %}
+  {% for key in ["data_dir", "models_dir", "llm_backend", "ollama_url", "offline_enforced", "max_audio_bytes", "max_audio_seconds", "max_transcript_bytes", "ollama_context", "ollama_predict", "job_max_attempts"] %}
   <tr><th>{{ key }}</th><td><code>{{ values[key] }}</code></td></tr>
   {% endfor %}
   {% if config_path %}<tr><th>configuration file</th><td><code>{{ config_path }}</code></td></tr>{% endif %}

@@ -222,3 +222,7 @@ def test_network_trace_parses_every_destination_position(tmp_path):
         "AF_INET6 2001:db8::1:443",
     ]
     assert result["endpoints"]["AF_INET 127.0.0.1:11434"] == 1  # the forged one is not counted
+    # With LM Studio configured, only its port is expected; Ollama's becomes unexpected.
+    assert trace.summarize(lines[:3], llm_port=1234)["unexpected_ip_endpoints"] == [
+        "AF_INET 127.0.0.1:11434"
+    ]
