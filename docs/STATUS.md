@@ -1,7 +1,8 @@
-# Status — 2026-10-31
+# Status — 2026-11-05
 
-Branches (stacked PRs): `phases-1-2` (Phase 1 + Phase 2, PR #1 → master), `phase-3`
-(PR #2 → `phases-1-2`), `phase-4` (PR → `phase-3`). Phase 1 was written in a separate Codex session.
+Branches: PR #1 merged `phases-1-2` into master. PRs #2 and #3 merged `phase-3` into `phases-1-2`
+and `phase-4` into `phase-3`, so Phases 3 and 4 reach master through PR #4 (`phase-3` → master).
+Phase 1 was written in a separate Codex session.
 
 ## Current state
 
@@ -25,14 +26,17 @@ Branches (stacked PRs): `phases-1-2` (Phase 1 + Phase 2, PR #1 → master), `pha
 
 ## Active work
 
-None. All four requested phases are implemented on stacked branches awaiting review.
+None. All four requested phases are implemented and reviewed through PRs #1–#3; PR #4 lands
+Phases 3 and 4 on master.
 
 ## Known limitations and unverified
 
-- Still no real inference: inference stack and models are not installed and Ollama was not
-  reachable. All model behavior in tests is mocked. Real extraction quality, rejection rates,
+- Still no real inference: inference stack and models are not installed and Ollama is not
+  installed. All model behavior in tests is mocked. Real extraction quality, rejection rates,
   consolidation on paraphrased repeats and summary usefulness with a Qwen 14B-class model are
   unmeasured. Performance (stage timings, GPU memory) has not been measured.
+- `uv.lock` resolves all extras, including `inference`, but that environment has never been
+  installed or tested. `requirements-dev.lock` remains the tested development environment.
 - Grounding checks catch fabricated quotes, names, numbers and dates, not misclassification of
   real quotes or lowercase paraphrase. Sentence-start exemptions are English-only.
 - Diarization OOM recovery is tested with a fake pipeline only; pyannote 4 batch-size attribute
@@ -50,7 +54,8 @@ None. All four requested phases are implemented on stacked branches awaiting rev
 
 ## Next (only on explicit request)
 
-Review and merge or push `phases-1-2` when ready. Install the inference stack and
-approved models, select an installed local model, and run the opt-in integration test on
-consented audio to obtain real stage timings and review rejection counts, observing that run
-with `scripts/observe_network.sh`.
+Merge PR #4 when ready. Install the inference stack, Ollama and approved models, select an
+installed local model, and run the opt-in integration test on consented audio to obtain real
+stage timings and review rejection counts, observing that run with
+`scripts/observe_network.sh`. Free GPU memory first: on 2026-11-05 an LM Studio `llama-server`
+held about 17.7 GB of the 24 GB.
