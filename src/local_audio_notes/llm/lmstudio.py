@@ -7,13 +7,19 @@ from local_audio_notes.llm.http import local_json, valid_vectors
 # Weight formats LM Studio runs from local files. Entries without one (cloud or otherwise
 # unknown models) are treated as remote and never used.
 LOCAL_FORMATS = {"gguf", "mlx"}
+# Idle seconds before LM Studio unloads a model it loaded on demand for these requests, so GPU
+# memory is free for the next transcription (the counterpart of Ollama's keep_alive 0). Long
+# enough to stay loaded across one meeting's consecutive requests.
+IDLE_TTL_SECONDS = 60
 
 
 class LMStudioClient:
     """LM Studio or Bionic on loopback: OpenAI-compatible chat/embeddings, native model list.
 
     LM Studio cannot set a context length per request; the model must be loaded with at
-    least `ollama_context` tokens or the server may silently truncate the transcript.
+    least `ollama_context` tokens or the server may silently truncate the transcript. The
+    `ttl` sent with each request unloads on-demand models soon after the last one; a model
+    loaded by hand in the app stays loaded.
     """
 
     def __init__(self, settings: Settings):
@@ -57,6 +63,7 @@ class LMStudioClient:
             {
                 "model": self.settings.ollama_model,
                 "stream": False,
+                "ttl": IDLE_TTL_SECONDS,
                 "temperature": 0,
                 "max_tokens": self.settings.ollama_predict,
                 "messages": [
@@ -82,7 +89,9 @@ class LMStudioClient:
 
     def embed(self, model: str, texts: list[str]) -> list[list[float]]:
         """Local embeddings for a small batch; keep batches small (2 MiB response cap)."""
-        value = self.request("POST", "/v1/embeddings", {"model": model, "input": texts})
+        value = self.request(
+            "POST", "/v1/embeddings", {"model": model, "input": texts, "ttl": IDLE_TTL_SECONDS}
+        )
         data = value.get("data") if isinstance(value, dict) else None
         try:
             vectors = [item["embedding"] for item in sorted(data, key=lambda d: d["index"])]

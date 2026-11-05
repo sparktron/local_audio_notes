@@ -5,7 +5,7 @@ import pytest
 
 from local_audio_notes.errors import NotesError
 from local_audio_notes.llm import llm_client
-from local_audio_notes.llm.lmstudio import LMStudioClient
+from local_audio_notes.llm.lmstudio import IDLE_TTL_SECONDS, LMStudioClient
 from local_audio_notes.llm.ollama import OllamaClient
 
 MODEL = "qwen3-14b-abliterated"
@@ -55,6 +55,7 @@ def test_chat_request_uses_json_schema_on_configured_port(monkeypatch, lmstudio)
     assert str(request.url) == "http://127.0.0.1:1234/v1/chat/completions"
     body = json.loads(request.content)
     assert body["model"] == MODEL and body["stream"] is False and body["temperature"] == 0
+    assert body["ttl"] == IDLE_TTL_SECONDS  # on-demand models unload after the notes
     assert body["max_tokens"] == lmstudio.ollama_predict
     assert body["messages"] == [
         {"role": "system", "content": "system"},
@@ -147,7 +148,11 @@ def test_embeddings_ordered_by_index(monkeypatch, lmstudio):
     seen = serve(monkeypatch, lambda request: {"data": data})
     assert LMStudioClient(lmstudio).embed("nomic", ["a", "b"]) == [[1.0, 0.0], [0.0, 1.0]]
     assert str(seen[0].url) == "http://127.0.0.1:1234/v1/embeddings"
-    assert json.loads(seen[0].content) == {"model": "nomic", "input": ["a", "b"]}
+    assert json.loads(seen[0].content) == {
+        "model": "nomic",
+        "input": ["a", "b"],
+        "ttl": IDLE_TTL_SECONDS,
+    }
 
 
 @pytest.mark.parametrize(

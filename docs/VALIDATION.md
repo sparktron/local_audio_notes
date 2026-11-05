@@ -1,5 +1,39 @@
 # Validation
 
+## LM Studio / Bionic backend — 2026-11-05
+
+- `pytest -q`: **269 passed, 1 skipped**; Ruff check and format clean. New tests cover backend
+  selection, the chat request (`json_schema` response format, `ttl`, configured port), truncated
+  or empty replies, error redaction, local-format filtering, refused cloud names, short loaded
+  context, inventory validation and embedding order/validation; configurable loopback port
+  validation, the network guard allowing only the configured port, and `network_trace.py`
+  with an `LLM_PORT`.
+- Inference stack installed with `scripts/setup.sh --inference --allow-model-assets` (pip, not
+  `uv.lock`): torch 2.8.0+cu128 (`torch.cuda.is_available()` true, RTX 3090), ctranslate2
+  4.8.5 (1 CUDA device), whisperx 3.8.6, pyannote.audio 4.0.7, silero-vad 6.2.0, faster-whisper
+  1.2.1, transformers 4.57.6; `pip check` clean; `doctor` reports the packages. No speech
+  models prepared, so no transcription was run.
+- Live checks against Bionic 1.1.10 (LM Studio server on 127.0.0.1:1235; its other listener,
+  39099, returns 404 for the API), all through `LMStudioClient` with the network guard set to
+  port 1235, using short synthetic prompts only:
+  - `ollama-models` listed four GGUF models (Qwen3.5 27B Q4_K_S, Qwen3.5 9B Q8_0, Qwen3 14B
+    Q6_K, nomic-embed-text v1.5), none marked remote. Bionic's cloud models are absent from
+    `/api/v0/models`.
+  - One `json_schema` request to `huihui-qwen3.5-27b-abliterated` (decision/action/question
+    schema, three-line transcript): `finish_reason` "stop", 0 reasoning tokens, valid JSON with
+    correct categories, exact quotes and owners (null where none was named); 50.5 s including
+    the on-demand load. The server loaded it with an 80,384-token context, reported as
+    `loaded_context_length` (about 18.3 GB GPU memory in use).
+  - `ttl`: a request to the already-loaded instance reset its timer to the instance's own 3600 s,
+    not 60. After unloading it (`/api/v1/models/unload`), a request with `ttl` 60 loaded it on
+    demand (16.4 s) with a 60 s timer; it unloaded on its own within about 64 s and GPU memory
+    fell to 592 MiB.
+  - Bionic's server config has `logSensitiveData: true` and `cors: true`; the synthetic prompts
+    are in its logs.
+
+Not demonstrated: real meeting transcripts or audio through Bionic, embeddings through Bionic,
+the Qwen3 14B model, LM Link remote models, the Ollama path against a real Ollama.
+
 ## Phase 4 — 2026-10-31
 
 - `pytest -q`: **220 passed, 1 skipped**; Ruff check and format clean. After merging the

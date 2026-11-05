@@ -139,8 +139,11 @@ The CLI lists installed models/digests and rejects cloud/remote aliases. It neve
 
 ### LM Studio or Bionic instead of Ollama
 
-Set `llm_backend = "lmstudio"` and point `ollama_url` at the server's loopback port, for
-example `http://127.0.0.1:1234`; the network guard then allows only that port. Notes use
+Set `llm_backend = "lmstudio"` and point `ollama_url` at the server's loopback port; the
+network guard then allows only that port. Bionic serves its API on `http://127.0.0.1:1235`
+(the `port` in `~/.lmstudio/apps/bionic/.internal/http-server-config.json`); the LM Studio
+app's default is `http://127.0.0.1:1234`. Bionic also listens on another, changing port
+for its own use, which does not serve this API. Notes use
 `/v1/chat/completions` with a `json_schema` response format, embeddings use `/v1/embeddings`,
 and `ollama-models` lists `/api/v0/models`. Set `ollama_model` (and `embedding_model`) to a
 model ID from that list. Only models with a local weight format (GGUF or MLX) are accepted;
@@ -148,9 +151,14 @@ cloud models are refused. The other `ollama_*` keys apply to this backend too.
 
 LM Studio cannot set a context length per request. Load the model with at least
 `ollama_context` tokens, because a server set to truncate on overflow would drop part of
-the transcript without an error. Unlike Ollama (`keep_alive` 0), LM Studio keeps a model
-loaded between requests, so unload it before long transcription runs if GPU memory is tight.
-If the server logs prompts, meeting transcripts end up in its logs: turn that off first.
+the transcript without an error. A model loaded on demand uses the context saved in the
+app's settings for that model; the client refuses a loaded model reporting less than
+`ollama_context`, but cannot check a model that is not loaded yet.
+Each request sends `ttl` 60, so a model the server loaded on demand unloads a minute after
+the last request, freeing GPU memory as Ollama's `keep_alive` 0 does. A model you loaded by
+hand in the app stays loaded: unload it before transcribing if GPU memory is tight.
+If the server logs prompts (`logSensitiveData`), meeting transcripts end up in its logs, and
+with CORS on, web pages in a local browser can call it: turn both off first.
 Set `LLM_PORT` to the same port when using `scripts/observe_network.sh`.
 
 Defaults: local `large-v3` Whisper directory; English; batch 8; CUDA float16 when

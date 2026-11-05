@@ -43,11 +43,15 @@ Phases 3 and 4 on master.
   unmeasured. Performance (stage timings, GPU memory) has not been measured.
 - `uv.lock` resolves all extras, including `inference`. The venv was installed with pip from
   `pyproject.toml`, not from `uv.lock`; `requirements-dev.lock` remains the tested dev set.
-- The LM Studio client is tested against mocked responses only. Not verified against a running
-  Bionic: whether it serves `/api/v0/models`, how cloud or LM Link models appear there, its
-  server port (Bionic's last recorded port was 33587, LM Studio's configured port is 1234),
-  and `json_schema` output with the installed Qwen models. LM Studio cannot set context per
-  request and keeps models loaded; its server config had prompt logging on.
+- The LM Studio client was checked live against Bionic 1.1.10 on 2026-11-05 (port 1235): model
+  listing, local-format filtering, one `json_schema` request to Qwen3.5 27B and the `ttl`
+  unload (see VALIDATION.md). Still unverified: a real meeting transcript (only short synthetic
+  prompts were sent), embeddings through Bionic, how LM Link remote models appear in
+  `/api/v0/models`, and the Qwen3 14B model. The `ttl` applies only to a model the server loads
+  on demand; an instance that is already loaded keeps its own timer (3600 s was observed).
+  The loaded-context check cannot run before an on-demand load.
+- Bionic's server config has `logSensitiveData` and CORS on: prompts (meeting transcripts) are
+  written to its logs and local web pages can call it. Both should be turned off in Bionic.
 - Grounding checks catch fabricated quotes, names, numbers and dates, not misclassification of
   real quotes or lowercase paraphrase. Sentence-start exemptions are English-only.
 - Diarization OOM recovery is tested with a fake pipeline only; pyannote 4 batch-size attribute
@@ -65,9 +69,9 @@ Phases 3 and 4 on master.
 
 ## Next (only on explicit request)
 
-Merge PR #4 when ready. Start Bionic's server and check the LM Studio client against it
-(model list, one structured request), with prompt logging off. Prepare the approved speech
-models, select an installed local LLM, and run the opt-in integration test on consented audio to obtain real
-stage timings and review rejection counts, observing that run with
-`scripts/observe_network.sh`. Free GPU memory first: on 2026-11-05 an LM Studio `llama-server`
-held about 17.7 GB of the 24 GB.
+Merge PR #4 when ready. Turn off Bionic's prompt logging and CORS, and set
+`llm_backend = "lmstudio"`, `ollama_url = "http://127.0.0.1:1235"` and an installed model.
+Prepare the approved speech models and run the opt-in integration test on consented audio to
+obtain real stage timings and review rejection counts, observing that run with
+`LLM_PORT=1235 scripts/observe_network.sh`. Free GPU memory first: a Qwen3.5 27B Q4_K_S
+instance holds about 17.7 GB of the 24 GB, and a model loaded by hand stays loaded.
