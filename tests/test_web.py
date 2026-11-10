@@ -250,6 +250,7 @@ def test_settings_saved_validated_and_paths_fixed(client, config, settings):
         "/settings",
         {
             "batch_size": "4",
+            "notes_style": "training",
             "device": "cpu",
             "min_speakers": "2",
             "max_speakers": "3",
@@ -261,6 +262,8 @@ def test_settings_saved_validated_and_paths_fixed(client, config, settings):
     assert response.status_code == 200 and "Saved" in response.text
     saved = load_settings(config)
     assert (saved.batch_size, saved.device, saved.min_speakers) == (4, "cpu", 2)
+    assert saved.notes_style == "training"
+    assert 'value="training" selected' in response.text
     assert saved.data_dir == settings.data_dir and saved.ollama_url == "http://127.0.0.1:11434"
     assert stat.S_IMODE(config.stat().st_mode) == 0o600
     response = post(client, "/settings", {"min_speakers": "9", "max_speakers": "2"})
@@ -398,3 +401,15 @@ def test_notes_left_by_a_run_that_stopped_before_exporting_are_hidden(
     queue.process(settings, identifier)
     page = client.get(f"/meetings/{identifier}").text
     assert "do not match" not in page and "Executive summary" in page
+
+
+def test_remove_meeting_requires_confirmation_and_preserves_files(client, settings, audio):
+    identifier = imported(client, settings, audio)
+    page = client.get(f"/meetings/{identifier}").text
+    assert "Remove this meeting from the database" in page
+    assert post(client, f"/meetings/{identifier}/remove", {}).status_code == 400
+    response = post(client, f"/meetings/{identifier}/remove", {"confirm": "yes"})
+    assert response.status_code == 200
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        assert connection.execute("SELECT count(*) FROM meetings").fetchone()[0] == 0
+    assert (settings.data_dir / identifier / "original.audio").exists()

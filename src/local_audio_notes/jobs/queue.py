@@ -22,11 +22,50 @@ from local_audio_notes.errors import Cancelled, Interrupted, NotesError
 from local_audio_notes.ingestion.importer import adopt
 from local_audio_notes.storage.db import connect, now, transaction
 from local_audio_notes.storage.files import meeting_dir
-from local_audio_notes.storage.locking import try_lock
+from local_audio_notes.storage.locking import exclusive_lock, try_lock
 from local_audio_notes.transcription.whisperx_backend import is_oom
 
 ACTIVE = ("queued", "running")
 LOCK = ".processing.lock"
+
+
+def remove_meeting(connection: sqlite3.Connection, settings: Settings, meeting_id: str) -> None:
+    """Remove database records while preserving files and preventing orphan re-adoption."""
+    directory = meeting_dir(settings.data_dir, meeting_id)
+    # Serialize with import/recovery and workers before checking and deleting any records.
+    with (
+        exclusive_lock(settings.data_dir / ".ingestion.lock"),
+        exclusive_lock(directory / LOCK),
+        transaction(connection),
+    ):
+        pipeline.get_meeting(connection, meeting_id)
+        if connection.execute(
+            "SELECT 1 FROM jobs WHERE meeting_id = ? AND state IN ('queued', 'running')",
+            (meeting_id,),
+        ).fetchone():
+            raise NotesError("Cancel the active job before removing this meeting")
+        connection.execute(
+            "INSERT INTO removed_meetings (id, removed_at) VALUES (?, ?)", (meeting_id, now())
+        )
+        connection.execute(
+            "DELETE FROM stage_runs WHERE job_id IN (SELECT id FROM jobs WHERE meeting_id = ?)",
+            (meeting_id,),
+        )
+        for table in (
+            "jobs",
+            "checkpoints",
+            "segment_embeddings",
+            "segment_search",
+            "item_search",
+            "segments",
+            "extraction_chunks",
+            "items",
+            "speaker_names",
+            "speaker_corrections",
+            "speaker_labels",
+        ):
+            connection.execute(f"DELETE FROM {table} WHERE meeting_id = ?", (meeting_id,))
+        connection.execute("DELETE FROM meetings WHERE id = ?", (meeting_id,))
 
 
 def get_job(connection: sqlite3.Connection, job_id: int) -> dict[str, Any]:

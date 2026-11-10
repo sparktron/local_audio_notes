@@ -184,3 +184,21 @@ def test_json_export_is_self_describing(items, transcript, settings):
     review = next(i for i in value["items"] if i["owner"] == "Bob")
     assert review["evidence"][0]["speaker_name"] == "Bob"
     assert review["evidence"][0]["start"] == 10
+
+
+def test_training_style_keeps_learning_and_questions_with_citations(transcript, items):
+    output = render_markdown({"id": "m"}, transcript, items, None, {}, SpeakerView(), "training")
+    assert "## Learning notes" in output and "## Questions raised" in output
+    assert "## Action items" not in output and "## Source references" in output
+    for item in items:
+        assert item.id in output and item.evidence[0].segment_id in output
+
+
+def test_training_summary_uses_training_guidance(items, settings):
+    class Client(FakeOllama):
+        def generate(self, system, content, schema):
+            assert "training session" in system
+            return super().generate(system, content, schema)
+
+    summary = summarize(items, Client(), settings.model_copy(update={"notes_style": "training"}))
+    assert summary.points

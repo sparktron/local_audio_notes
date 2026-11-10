@@ -50,6 +50,17 @@ or decisions. Omit anything unsupported. Return {"items": []} if nothing qualifi
 """
 
 
+TRAINING_GUIDANCE = """
+This is a training session. Capture as much distinct teaching as the transcript supports:
+concepts, definitions, explanations, examples, procedures, cautions, and practical tips. Use
+separate topic, fact or requirement items for distinct details, with exact supporting quotes.
+Capture substantive audience questions as question items even when answered, and capture the
+answer as a separate supported teaching item. Include context needed to understand each point.
+Do not assume a speaker is the instructor or a student, infer identities, or invent answers.
+Do not treat instructional examples as meeting decisions or personal commitments.
+"""
+
+
 class ChunkCache(Protocol):
     def get(self, key: str) -> str | None: ...
 
@@ -209,7 +220,8 @@ def extract(
     """Extract per chunk. Raw responses are cached only after schema validation and are
     re-validated on reuse, so a failed or cancelled run resumes at the next chunk."""
     schema = ExtractionResult.model_json_schema()
-    limit = payload_limit(settings, SYSTEM, schema, settings.chunk_chars)
+    system = SYSTEM + TRAINING_GUIDANCE if settings.notes_style == "training" else SYSTEM
+    limit = payload_limit(settings, system, schema, settings.chunk_chars)
     items: list[EvidenceItem] = []
     reasons = Counter[str]()
     count = cached = 0
@@ -223,6 +235,7 @@ def extract(
             json.dumps(
                 [
                     PROMPT_VERSION,
+                    system,
                     model_key,
                     settings.ollama_context,
                     settings.ollama_predict,
@@ -233,7 +246,7 @@ def extract(
         raw = cache.get(key) if cache else None
         cached += raw is not None
         if raw is None:
-            raw = client.generate(SYSTEM, payload, schema)
+            raw = client.generate(system, payload, schema)
         try:
             result = ExtractionResult.model_validate_json(raw)
         except ValidationError:

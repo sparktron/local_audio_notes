@@ -18,7 +18,7 @@ You will need:
   `ffprobe`. A virtual environment keeps Python dependencies separate from system Python.
 - Disk space and memory for the inference dependencies and local speech, alignment,
   diarization, and language models. Downloads can be large. A compatible GPU can speed up
-  processing; CPU mode is supported but may be slow.
+  processing. CUDA GPU is the default; CPU mode is supported but may be slow.
 - A local Ollama, LM Studio, or Bionic server with an installed language model. The
   application connects only to a loopback address and does not pull language models.
 - A recording you are authorized to process. WAV, M4A, MP3, and FLAC are supported.
@@ -85,8 +85,17 @@ notes as private. Processing time depends on recording length, hardware, models,
 
 For a discussion without formal decisions or action items, select **Conversation** on the
 web Settings page (or set `notes_style = "conversation"` in `config.toml`) before processing.
-The default **Meeting** style includes decision and action sections. Either style produces a
-draft, and model classifications can still require correction.
+The default **Meeting** style includes decision and action sections. Choose **Training** (or
+`notes_style = "training"`) for teaching sessions: extraction emphasizes concepts, explanations,
+examples, procedures and substantive questions, with citations to the transcript. Questions and
+answers are captured as separate items when supported; speaker roles are not inferred. Coverage is
+bounded by the model and its context, so review the full transcript and recording for omissions.
+All styles produce drafts that require review.
+
+Style is a global setting for subsequent processing. After changing it, process an existing recording
+again with **Notes only** (or `run ID --notes-only`) to reuse the transcript while regenerating
+style-specific evidence and summary. Exporting alone only changes the layout; it cannot recover
+teaching details that were not previously extracted.
 
 ### Use the command line instead
 
@@ -217,11 +226,14 @@ If the server logs prompts (`logSensitiveData`), meeting transcripts end up in i
 with CORS on, web pages in a local browser can call it: turn both off first.
 Set `LLM_PORT` to the same port when using `scripts/observe_network.sh`.
 
-Defaults: local `large-v3` Whisper directory; English; batch 8; CUDA float16 when
-PyTorch supports it, otherwise CPU int8; speaker bounds 1–8; 2 GiB/8-hour input limits;
+Defaults: local `large-v3` Whisper directory; English; batch 8; CUDA float16; speaker bounds 1–8; 2 GiB/8-hour input limits;
 10-minute transcription windows; at most 8192 Ollama context tokens and 2048 output
 tokens by default. `whisper_model` is a descriptive label: the registered local model
 directory actually selects the weights. Change both label and registration for an alternative.
+If CUDA is unavailable, the default fails with an error. Set `device = "auto"` to use CUDA
+when available and otherwise CPU, or `device = "cpu"` to use CPU explicitly (int8). Existing
+configuration files keep their chosen setting. This controls the speech pipeline; GPU use by
+the language model is configured separately in the model server.
 Set `language="auto"` to detect language; alignment_language and registered CTC model
 must match. No alignment model is downloaded automatically on language mismatch.
 
@@ -250,6 +262,14 @@ never a public bind. Pages:
 Processing started from the browser runs in a separate `worker` process, which exits when
 the queue is empty and keeps running if the server stops. See
 [ADR-0003](docs/decisions/0003-phase3-loopback-web-interface.md) for the security model.
+
+### Remove a test meeting
+
+On the meeting page, open **Remove this meeting from the database**, review the scope, and
+confirm removal. Its database records, job history, search entries and speaker corrections are
+removed; the original recording and generated files stay in the meeting's data directory.
+Cancel any active job first. Recovery will not automatically re-add a removed meeting; import
+the original audio again to create a new meeting. Retained files still contain private data.
 
 ## Search
 

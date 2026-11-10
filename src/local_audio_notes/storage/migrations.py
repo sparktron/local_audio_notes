@@ -154,4 +154,11 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
         ) STRICT""",
         "CREATE INDEX segment_embeddings_by_model ON segment_embeddings(model)",
     ),
+    # 4: prevent intentionally removed records from being re-adopted from preserved files.
+    (
+        """CREATE TABLE removed_meetings (
+            id TEXT PRIMARY KEY CHECK (length(id) = 36),
+            removed_at TEXT NOT NULL
+        ) STRICT""",
+    ),
 )

@@ -13,8 +13,9 @@
     <label>Style <select name="notes_style">
       <option value="meeting"{% if values.notes_style == "meeting" %} selected{% endif %}>Meeting: decisions and action items</option>
       <option value="conversation"{% if values.notes_style == "conversation" %} selected{% endif %}>Conversation: discussion and perspectives</option>
+      <option value="training"{% if values.notes_style == "training" %} selected{% endif %}>Training: lessons, examples and questions</option>
     </select></label>
-    <p class="hint">Applies when notes are next generated or exported.</p>
+    <p class="hint">For training-specific extraction, process the recording again (notes only can reuse the transcript). Export alone changes the layout, not the extracted content.</p>
   </fieldset>
   <fieldset>
     <legend>Transcription</legend>
@@ -27,6 +28,7 @@
     <legend>GPU and performance</legend>
     <label>Device
       <select name="device">{% for d in ["auto", "cuda", "cpu"] %}<option{% if d == values.device %} selected{% endif %}>{{ d }}</option>{% endfor %}</select></label>
+    <p class="hint">CUDA is the default; auto uses CPU if CUDA is unavailable. Language model GPU use is configured in its server.</p>
     <label>Compute type
       <select name="compute_type">{% for c in ["float16", "int8_float16", "int8", "float32"] %}<option{% if c == values.compute_type %} selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
     <label>Batch size <input type="number" name="batch_size" min="1" max="64" value="{{ values.batch_size }}"></label>

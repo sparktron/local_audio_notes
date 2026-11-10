@@ -126,6 +126,23 @@ def render_markdown(
                 "follow_up",
             },
         )
+    elif style == "training":
+        section(
+            "Learning notes",
+            {
+                "purpose",
+                "topic",
+                "fact",
+                "requirement",
+                "proposal",
+                "decision",
+                "action",
+                "risk",
+                "blocker",
+                "follow_up",
+            },
+        )
+        section("Questions raised", {"question"})
     else:
         section("Key discussion points", {"purpose", "topic", "fact", "requirement"})
     if style == "meeting":

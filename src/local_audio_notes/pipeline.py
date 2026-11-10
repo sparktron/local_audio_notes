@@ -509,6 +509,7 @@ def _notes_stages(
         "extracting",
         digest(
             PROMPT_VERSION,
+            settings.notes_style,
             transcript_sha,
             model_key,
             settings.chunk_chars,
@@ -553,6 +554,7 @@ def _notes_stages(
         "summarizing",
         digest(
             SUMMARY_VERSION,
+            settings.notes_style,
             run.outputs["consolidating"],
             model_key,
             settings.ollama_context,

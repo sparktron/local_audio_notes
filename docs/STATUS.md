@@ -71,7 +71,8 @@ Phases 3 and 4 on master.
 - Recovery assumes a single host and a local filesystem with working `flock`.
 - Cancellation cannot interrupt a single native call (one transcription window, one LLM request,
   whole-file diarization).
-- No retention policy or deletion; no encryption at rest.
+- No automatic retention policy or file deletion; removing a meeting from the database preserves
+  its recording and generated files. No encryption at rest.
 - Semantic search tested only with a deterministic fake embedder; no real embedding model
   has been run. Network observation covers ingest, a preflight-failing run and serve on this
   host, not real inference.
