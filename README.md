@@ -1,71 +1,126 @@
-# local_audio_notes
+# Local Audio Notes
 
-Private meeting audio → local transcription and alignment → anonymous speakers →
-grounded local Ollama evidence → cited draft notes → Markdown/JSON.
-**Phases 1–4 implemented** (CLI, SQLite, durable jobs, evidence extraction, loopback web UI,
-search, optional local embeddings, offline observation tooling).
+Turn a local recording into a transcript and cited draft notes using models running on your
+computer. Upload an audio file, review the transcript and anonymous speaker labels, and
+export the notes as Markdown or JSON. **Audio alone is the default workflow**; you do not
+need to supply a transcript.
 
-This is a working CLI and local web implementation with tested media handling and mocked inference
-boundaries. Actual model inference, GPU integration, diarization quality and isolated
-offline inference are **not yet verified**. No models were downloaded during development.
-Do not treat this scaffold as a finished production service.
+The application offers a local web interface and a command-line interface. It can also use
+a timestamped transcript as the notes source or compare a supplied transcript with a new
+transcription. Speaker labels are anonymous until you confirm names yourself, and generated
+notes and citations need review against the recording.
 
-Implemented: WAV/M4A/MP3/FLAC imports; preserved originals and SHA-256; local WhisperX
-adapters; local Community-1 diarization; word attribution with Unknown/Uncertain labels;
-strict timed transcript import; private artifacts. Phase 2 adds a private SQLite store with
-migrations; a durable job queue with cancellation, restart recovery and per-stage metrics;
-hash-verified stage checkpoints so failed or interrupted work resumes instead of restarting;
-two-stage evidence extraction (validated, cited items, then a grounded summary); confirmed
-per-meeting speaker names and corrections. Phase 3 adds a loopback-only web interface
-(dashboard, import, transcript viewer with audio, speaker correction, notes, export,
-settings). Phase 4 adds SQLite full-text search with participant/category/date filters,
-optional semantic search with a locally installed embedding model, a stat-keyed hash cache,
-and a strace-based network observation script. No automatic speaker identity assignment. See [scope](docs/PLAN.md) and [validation](docs/VALIDATION.md).
+## Before you begin
 
-## Ubuntu installation
+You will need:
 
-Do not replace system Python or change NVIDIA/Ollama services. Inspect first:
+- Linux (the setup instructions below use Ubuntu), Python **3.11–3.13**, `ffmpeg` and
+  `ffprobe`. A virtual environment keeps Python dependencies separate from system Python.
+- Disk space and memory for the inference dependencies and local speech, alignment,
+  diarization, and language models. Downloads can be large. A compatible GPU can speed up
+  processing; CPU mode is supported but may be slow.
+- A local Ollama, LM Studio, or Bionic server with an installed language model. The
+  application connects only to a loopback address and does not pull language models.
+- A recording you are authorized to process. WAV, M4A, MP3, and FLAC are supported.
+
+Setup requires network access to install dependencies and, if needed, explicitly download
+models. Processing uses the models you have prepared locally. Local processing alone does
+not prove OS-level network isolation; see [Privacy and offline use](#privacy-and-offline-use).
+
+## Setup
+
+Run these commands from a terminal in the repository. First check the prerequisites:
 
 ```bash
-cd /home/mythos/repos/local_audio_notes
+cd /path/to/local_audio_notes
 python3 --version
-command -v ffmpeg ffprobe ollama nvidia-smi nvcc
-nvidia-smi
-nvcc --version
 ffmpeg -version
+ffprobe -version
 ```
 
-Ubuntu 22.04's default Python 3.10 is too old. On the inspected workstation, use the
-already installed Python 3.12, with no system changes:
+If Ubuntu does not have ffmpeg and ffprobe, install the `ffmpeg` package using your normal
+system package manager. Python 3.10 is too old; choose a Python 3.11, 3.12, or 3.13
+executable without replacing system Python. For example, if `python3.12` is available:
 
 ```bash
-PYTHON_BIN=/home/mythos/.local/share/uv/python/cpython-3.12-linux-x86_64-gnu/bin/python3.12 \
-  bash scripts/setup.sh
+PYTHON_BIN=python3.12 bash scripts/setup.sh --inference --allow-model-assets
+.venv/bin/python -m pip install -e '.[web]'
 cp -n config.example.toml config.toml
 .venv/bin/local-audio-notes --config config.toml doctor
 ```
 
-For another machine with uv already installed, explicitly installing a managed interpreter
-is an optional dependency installation step: `uv python install 3.12`, then
-`PYTHON_BIN="$(uv python find 3.12)" bash scripts/setup.sh`. If ffmpeg is absent, explicitly
-install it through Ubuntu (`sudo apt-get update` followed by `sudo apt-get install ffmpeg`).
-Setup checks for ffmpeg and never installs system packages or services itself.
+The first command creates `.venv` if needed and installs the development and inference
+dependencies, including the Silero VAD weights bundled with its wheel. The second installs
+the optional web dependencies. These commands download Python packages; they do not install
+system packages or start services. If `.venv` already exists, setup reuses it: check its
+Python version with `.venv/bin/python --version`. `cp -n` preserves an existing configuration.
+For a CLI-only installation, omit the web dependency command. Check dependency consistency
+with `.venv/bin/python -m pip check`.
 
-The initial setup installs package/test dependencies only. To intentionally install the
-inference stack, including the Silero VAD weights bundled with its wheel:
+Next, **prepare the local models** using [Explicit model preparation](#explicit-model-preparation-network-enabled-setup-only),
+then configure a local language model using [Configure local inference](#configure-local-inference).
+Both steps are required before processing audio. `doctor` reports environment information;
+`models-check` verifies the registered speech assets, and `ollama-models` lists language
+models available from the configured server.
+
+## Your first recording
+
+After setup and model preparation, start the web interface:
 
 ```bash
-PYTHON_BIN=/home/mythos/.local/share/uv/python/cpython-3.12-linux-x86_64-gnu/bin/python3.12 \
-  bash scripts/setup.sh --inference --allow-model-assets
-.venv/bin/python -m pip check
+.venv/bin/local-audio-notes --config config.toml serve --port 8765
 ```
 
-WhisperX is pinned to 3.8.6, which declares torch/torchaudio 2.8, pyannote 4 and compatible
-torchcodec dependencies. This dependency set is based on
-[upstream packaging](https://github.com/m-bain/whisperX/blob/v3.8.6/pyproject.toml), and
-the heavyweight stack has not been installed or tested here. Resolve it in this venv;
-do not upgrade/downgrade system CUDA or drivers speculatively. CUDA toolkit detection
-does not demonstrate PyTorch/CTranslate2 inference. CPU mode is available in config.
+1. Open the sign-in link printed in the terminal. Keep the server running while using the UI.
+2. Open **Import**, select your audio file, and leave the default **transcribe** mode selected.
+   A transcript attachment is optional. Start processing or import first and process later.
+3. Open the meeting from the dashboard. Follow its status until processing completes.
+4. Listen to the recording and review the transcript, citations, and speaker labels. Confirm
+   names or correct segments only when you know who spoke.
+5. Download the Markdown or JSON notes from the meeting page.
+
+The application copies and preserves the original recording under its configured data
+directory. The default is `data/`; treat that directory and its database, transcripts, and
+notes as private. Processing time depends on recording length, hardware, models, and settings.
+
+For a discussion without formal decisions or action items, select **Conversation** on the
+web Settings page (or set `notes_style = "conversation"` in `config.toml`) before processing.
+The default **Meeting** style includes decision and action sections. Either style produces a
+draft, and model classifications can still require correction.
+
+### Use the command line instead
+
+Replace the example below with the path to your audio file. `ingest` prints an ID; `run`
+transcribes and processes that recording, and `status` reports progress or safe error details.
+
+```bash
+meeting_id=$(.venv/bin/local-audio-notes --config config.toml ingest /absolute/path/recording.wav)
+.venv/bin/local-audio-notes --config config.toml run "$meeting_id"
+.venv/bin/local-audio-notes --config config.toml status "$meeting_id"
+```
+
+By default, outputs are in `data/<meeting_id>/`, including `notes.md`, `notes.json`, and
+`transcript.json`. See [Import, process and export (CLI)](#import-process-and-export-cli)
+for retries, speaker corrections, and exports.
+
+### Choose how an existing transcript is used
+
+| Mode | Source of notes | Use of an attachment |
+| --- | --- | --- |
+| **transcribe** (default) | The app transcribes the audio. | Ignored for notes. |
+| **align** | The supplied timestamped SRT or supported JSON. | Uses its existing time anchors with the recording. |
+| **compare** | The app transcribes the audio. | Compares the new transcript to the attached TXT, SRT, or JSON. |
+
+Untimed plain text cannot currently be used as an aligned notes source: the application
+will not invent timestamps. Comparison is an exact-text comparison, not a quality score.
+See the [CLI transcript examples](#import-process-and-export-cli) for supported formats.
+
+## Inference dependencies
+
+The inference setup installs WhisperX 3.8.6, pyannote.audio and their dependencies in the
+virtual environment. PyTorch, CTranslate2 and native audio dependencies must be compatible
+with your machine. Detecting a CUDA toolkit or GPU does not prove inference will work.
+If GPU setup fails, see [troubleshooting](docs/TROUBLESHOOTING.md); CPU mode is configurable.
 
 ## Explicit model preparation (network-enabled setup only)
 
@@ -120,8 +175,9 @@ trusted upstream Python/native code, so treat installed packages and models as t
 
 ## Configure local inference
 
-The inspected host had no Ollama executable on PATH and no service at 127.0.0.1:11434.
-Locate/start your intended installation; this project will not alter or install it.
+Install and start your chosen language-model server separately; this project does not
+install or manage that service. For Ollama, first check whether your intended server is
+already running.
 For a manually managed Ollama process, keep it on loopback and disable cloud routing:
 
 ```bash
@@ -322,7 +378,7 @@ The strict script is expected to fail in the normal host namespace. See
 [security instructions](docs/SECURITY.md) for an isolated namespace containing both
 the CLI and Ollama. Application guards do not prove native-library or server isolation.
 `requirements-dev.lock` records the exact lightweight development environment tested on
-Python 3.12; it does not include the untested inference stack or package artifact hashes.
+Python 3.12; it does not lock the inference stack or package artifact hashes.
 
 A real audio integration test is opt-in, with private data stored under your configured
 data directory. Run it in a separate pytest process after model setup:
@@ -336,7 +392,7 @@ This checks real stage completion and emits actual wall time locally. Human comp
 against time-aligned reference audio is still needed to measure transcription/diarization
 quality. The synthetic three-speaker fixture tests logic, not real quality or GPU performance.
 
-## Security limits and next phases
+## Privacy and offline use
 
 No encryption at rest is provided; use encrypted underlying storage such as LUKS and
 encrypted backups. Trusted packages/models, a trusted local Ollama daemon and private
@@ -344,7 +400,7 @@ same-user filesystem storage remain necessary. Native decoders and libraries are
 OS-sandboxed by the default CLI. Draft classifications can still be wrong despite quote
 validation; review audio before treating extracted commitments as authoritative.
 
-All four requested phases are implemented; real-model validation is still outstanding
-(see [status](docs/STATUS.md)). The SQLite database holds full transcript text (for
+Inference and note quality depend on the local models and recording; review outputs against
+the audio. See [status](docs/STATUS.md) for current validation and known limitations. The SQLite database holds full transcript text (for
 search), quotes, titles and speaker names: protect it like the recordings. See [architecture](docs/ARCHITECTURE.md), [security](docs/SECURITY.md),
 [troubleshooting](docs/TROUBLESHOOTING.md), and [status](docs/STATUS.md).
