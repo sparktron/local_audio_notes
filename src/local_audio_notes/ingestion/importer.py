@@ -31,7 +31,19 @@ def ingest(audio: Path, settings: Settings, transcript: Path | None = None) -> s
     try:
         with exclusive_lock(root / ".ingestion.lock"):
             adopt(connection, root)
-            return _ingest(connection, audio, settings, transcript)
+            return _ingest(connection, audio, settings, transcript)[0]
+    finally:
+        connection.close()
+
+
+def ingest_unique_audio(audio: Path, settings: Settings) -> tuple[str, bool]:
+    """Import audio once by content, regardless of any existing transcript attachment."""
+    root = private_dir(settings.data_dir)
+    connection = connect(root)
+    try:
+        with exclusive_lock(root / ".ingestion.lock"):
+            adopt(connection, root)
+            return _ingest(connection, audio, settings, None, unique_audio=True)
     finally:
         connection.close()
 
@@ -86,14 +98,28 @@ def adopt(connection: sqlite3.Connection, root: Path) -> dict[str, int]:
 
 
 def _ingest(
-    connection: sqlite3.Connection, audio: Path, settings: Settings, transcript: Path | None
-) -> str:
+    connection: sqlite3.Connection,
+    audio: Path,
+    settings: Settings,
+    transcript: Path | None,
+    *,
+    unique_audio: bool = False,
+) -> tuple[str, bool]:
     root = settings.data_dir
     identifier = str(uuid4())
     # Only scratch data is removed on failed validation. Caller-owned originals are untouched.
     with tempfile.TemporaryDirectory(dir=root, prefix=".import-") as scratch:
         staging = Path(scratch)
         digest = copy_bounded(audio, staging / "original.audio", settings.max_audio_bytes)
+        if unique_audio:
+            existing = connection.execute(
+                "SELECT id FROM meetings WHERE audio_sha256 = ? ORDER BY imported_at LIMIT 1",
+                (digest,),
+            ).fetchone()
+            if existing:
+                if sha256(root / existing["id"] / "original.audio") != digest:
+                    raise NotesError("Existing recording failed integrity verification")
+                return existing["id"], False
         info = inspect_audio(staging / "original.audio", settings)
         attached = None
         if transcript is not None:
@@ -124,7 +150,7 @@ def _ingest(
                 raise NotesError("Existing recording failed integrity verification")
             if attached and sha256(directory / "attached.transcript") != attached["sha256"]:
                 raise NotesError("Existing attached transcript failed integrity verification")
-            return existing["id"]
+            return existing["id"], False
         record = {
             "version": MANIFEST_VERSION,
             "id": identifier,
@@ -138,4 +164,4 @@ def _ingest(
     # A crash here leaves a verified directory that the next ingest/recover adopts.
     with transaction(connection):
         register(connection, record)
-    return identifier
+    return identifier, True

@@ -71,6 +71,49 @@ function importForm() {
   });
 }
 
+function folderImport() {
+  const form = document.getElementById("folder-form");
+  if (!form) return;
+  const status = document.getElementById("folder-status");
+  const progress = document.getElementById("folder-progress");
+  const results = document.getElementById("folder-results");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const files = Array.from(document.getElementById("audio-folder").files)
+      .filter((file) => /\.(wav|m4a|mp3|flac)$/i.test(file.name));
+    results.replaceChildren();
+    if (!files.length) { status.textContent = "No supported audio files found."; return; }
+    const button = form.querySelector("button[type=submit]");
+    button.disabled = true;
+    progress.hidden = false;
+    let imported = 0, skipped = 0, failed = 0;
+    for (const [index, file] of files.entries()) {
+      status.textContent = `Importing ${index + 1} of ${files.length}…`;
+      const row = document.createElement("li");
+      try {
+        const id = await upload(file, "audio", form, () => {});
+        const body = new URLSearchParams({csrf: form.dataset.csrf, audio_upload: id,
+          process: form.elements.process.checked ? "on" : ""});
+        const response = await fetch("/api/import-audio", {method: "POST", body});
+        if (!response.ok) throw new Error(`Import failed (HTTP ${response.status})`);
+        const result = await response.json();
+        if (result.created) imported++; else skipped++;
+        const link = document.createElement("a");
+        link.href = `/meetings/${result.meeting_id}`;
+        link.textContent = file.webkitRelativePath || file.name;
+        row.append(link, document.createTextNode(result.created ? ": imported" : ": already exists"));
+      } catch (error) {
+        failed++;
+        row.textContent = `${file.webkitRelativePath || file.name}: ${error.message}`;
+      }
+      results.append(row);
+      progress.value = Math.round((index + 1) * 100 / files.length);
+    }
+    status.textContent = `Finished: ${imported} imported, ${skipped} already present, ${failed} failed.`;
+    button.disabled = false;
+  });
+}
+
 function seekToAnchor() {
   // Search results link to #s000123: position the player there without autoplaying.
   const player = document.getElementById("player");
@@ -89,4 +132,5 @@ document.addEventListener("DOMContentLoaded", () => {
   seekLinks();
   seekToAnchor();
   importForm();
+  folderImport();
 });

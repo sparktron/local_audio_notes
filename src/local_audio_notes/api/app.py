@@ -33,7 +33,7 @@ from local_audio_notes.api.security import COOKIE, HEADERS, LOOPBACK_HOSTS, Guar
 from local_audio_notes.config import Settings, load_settings
 from local_audio_notes.errors import NotesError
 from local_audio_notes.extraction.grounding import normalize
-from local_audio_notes.ingestion.importer import ingest
+from local_audio_notes.ingestion.importer import ingest, ingest_unique_audio
 from local_audio_notes.jobs.queue import (
     cancel,
     describe,
@@ -368,6 +368,31 @@ def create_app(
             target.unlink(missing_ok=True)
             raise
         return JSONResponse({"upload_id": identifier})
+
+    @app.post("/api/import-audio")
+    async def import_audio_upload(request: Request) -> Response:
+        form = await read_form(request, guard)
+        audio_id = form.get("audio_upload", "")
+        if not UPLOAD_ID.fullmatch(audio_id):
+            raise NotesError("Upload the audio file first")
+        if form.get("process", "") not in {"", "on"}:
+            raise NotesError("Invalid processing option")
+
+        def run() -> tuple[str, bool]:
+            current = state["settings"]
+            staged = uploads / audio_id
+            try:
+                identifier, created = ingest_unique_audio(staged, current)
+            finally:
+                staged.unlink(missing_ok=True)
+            if created and form.get("process") == "on":
+                with database(current) as connection:
+                    enqueue(connection, current, identifier, "full", "transcribe")
+                launcher.ensure()
+            return identifier, created
+
+        identifier, created = await run_in_threadpool(run)
+        return JSONResponse({"meeting_id": identifier, "created": created})
 
     @app.post("/import")
     async def import_submit(request: Request) -> Response:

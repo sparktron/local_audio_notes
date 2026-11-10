@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Import{% endblock %}
 {% block content %}
-<h1>Import a recording</h1>
+<h1>Import recordings</h1>
 <p>Files are copied into private local storage and validated by content, not extension.
 The original file on disk is never modified or deleted.</p>
+<h2>Import one recording</h2>
 <form method="post" action="/import" id="import-form"
       data-csrf="{{ csrf }}" data-audio-limit="{{ audio_limit }}" data-transcript-limit="{{ transcript_limit }}">
   <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -29,6 +30,19 @@ The original file on disk is never modified or deleted.</p>
   <button type="submit">Import</button>
   <progress id="upload-progress" value="0" max="100" hidden></progress>
   <p id="upload-status" class="hint" role="status"></p>
+</form>
+<h2>Import a folder</h2>
+<p>Select a folder of recordings. WAV, M4A, MP3 and FLAC files in the folder and its
+subfolders are imported individually. Existing audio is skipped by content, even if its filename
+has changed or it has a transcript attached. Other files are ignored. Folder imports transcribe
+audio and do not attach transcripts.</p>
+<form id="folder-form" data-csrf="{{ csrf }}" data-audio-limit="{{ audio_limit }}">
+  <label>Audio folder <input type="file" id="audio-folder" webkitdirectory multiple required></label>
+  <label><input type="checkbox" name="process" checked> Start processing newly imported recordings</label>
+  <button type="submit">Import folder</button>
+  <progress id="folder-progress" value="0" max="100" hidden></progress>
+  <p id="folder-status" class="hint" role="status"></p>
+  <ul id="folder-results"></ul>
 </form>
 <noscript><p class="error">Uploading needs JavaScript. Use the CLI <code>ingest</code> command instead.</p></noscript>
 {% endblock %}
