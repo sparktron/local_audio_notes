@@ -276,3 +276,56 @@ def test_deadline_whole_word_match_kept(transcript):
     )
     result, reasons = check(raw, transcript)
     assert reasons == [] and (result.owner, result.deadline) == ("Bob", "November 6")
+
+
+def test_training_extraction_captures_questions_and_uses_separate_cache(settings):
+    transcript = Transcript(
+        language="en",
+        segments=[
+            Segment(id="s000000", start=0, end=2, text="A cache stores copies for faster access."),
+            Segment(id="s000001", start=2, end=3, text="What happens when it expires?"),
+            Segment(id="s000002", start=3, end=5, text="The next request fetches a fresh copy."),
+        ],
+    )
+    store = {}
+
+    class Cache:
+        get = staticmethod(store.get)
+        put = staticmethod(store.__setitem__)
+
+    class Client:
+        systems = []
+
+        def generate(self, system, content, schema):
+            self.systems.append(system)
+            return json.dumps(
+                {
+                    "items": [
+                        item(
+                            "fact",
+                            "A cache stores copies for faster access.",
+                            [("s000000", "A cache stores copies for faster access.")],
+                        ),
+                        item(
+                            "question",
+                            "What happens when it expires?",
+                            [("s000001", "What happens when it expires?")],
+                        ),
+                        item(
+                            "fact",
+                            "The next request fetches a fresh copy.",
+                            [("s000002", "The next request fetches a fresh copy.")],
+                        ),
+                    ]
+                }
+            )
+
+    client = Client()
+    extract(transcript, client, settings, "model", Cache())
+    training = settings.model_copy(update={"notes_style": "training"})
+    result = extract(transcript, client, training, "model", Cache())
+    assert result.cached_chunks == 0
+    assert [i.category for i in result.items] == ["fact", "question", "fact"]
+    assert [i.evidence[0].segment_id for i in result.items] == ["s000000", "s000001", "s000002"]
+    assert "substantive audience questions" in client.systems[-1]
+    assert extract(transcript, client, training, "model", Cache()).cached_chunks == 1

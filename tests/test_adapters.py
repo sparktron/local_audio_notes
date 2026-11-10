@@ -20,7 +20,7 @@ def backend(monkeypatch, settings, tmp_path):
     monkeypatch.setitem(sys.modules, "nltk", nltk)
     monkeypatch.setattr(backend_module, "release_gpu", lambda: None)
     paths = {kind: tmp_path / kind for kind in ["whisper", "alignment", "vad", "tokenizer"]}
-    return backend_module.WhisperXBackend(settings, paths)
+    return backend_module.WhisperXBackend(settings.model_copy(update={"device": "cpu"}), paths)
 
 
 def test_audio_windows_bounded(audio):
@@ -160,3 +160,11 @@ def test_diarization_oom_halves_batches_then_optional_cpu(
     else:
         assert len(diarize(audio, tmp_path, settings, "cuda")) == 1
         assert attempts[-1] == ("cpu", 1)
+
+
+def test_device_defaults_to_cuda_and_allows_explicit_cpu_or_auto():
+    from local_audio_notes.config import Settings
+
+    assert Settings().device == "cuda"
+    assert Settings(device="auto").device == "auto"
+    assert Settings(device="cpu").device == "cpu"

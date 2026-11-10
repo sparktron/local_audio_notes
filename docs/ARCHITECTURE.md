@@ -68,7 +68,7 @@ flowchart LR
 ## SQLite
 
 `data/notes.sqlite3`, mode 0600, WAL, `synchronous=FULL`, foreign keys on,
-`trusted_schema=OFF`, STRICT tables, forward-only migrations (`PRAGMA user_version`; 3 so far).
+`trusted_schema=OFF`, STRICT tables, forward-only migrations (`PRAGMA user_version`; 4 so far).
 
 | Table | Holds |
 | --- | --- |
@@ -83,6 +83,7 @@ flowchart LR
 | speaker_labels | every speaker label in the transcript, including word-only labels (migration 2) |
 | segment_search, item_search (FTS5) | segment text and item text for search (migration 3) |
 | segment_embeddings | optional unit float32 vectors keyed by embedding model name+digest |
+| removed_meetings | IDs of records deliberately removed, preventing automatic re-adoption |
 
 Since Phase 4 the search tables hold full transcript text; artifacts remain the source of
 truth and `reindex` rebuilds the tables from them. The database is as sensitive as the
@@ -114,5 +115,5 @@ All private, none committed, none deleted automatically.
 
 ## Not implemented
 
-Retention policies and deletion; encryption at rest; multi-host workers; real-model quality
+Automatic retention policies and file deletion; encryption at rest; multi-host workers; real-model quality
 and performance validation (needs installed models and consented, annotated audio).

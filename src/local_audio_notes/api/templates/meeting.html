@@ -56,6 +56,20 @@
   <audio controls preload="metadata" src="/meetings/{{ meeting.id }}/audio" id="player"></audio>
 </section>
 
+<section class="panel">
+  <details>
+    <summary>Remove this meeting from the database</summary>
+    <p>This removes the meeting, its job history, notes, transcript search index, and speaker
+    corrections from the database. The recording and all files in its data directory remain on disk.
+    Cancel any active job first. Import the original audio again to create a new meeting.</p>
+    <form method="post" action="/meetings/{{ meeting.id }}/remove">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label><input type="checkbox" name="confirm" value="yes" required> I want to remove this meeting from the database.</label>
+      <button type="submit">Remove meeting</button>
+    </form>
+  </details>
+</section>
+
 {% if notes_stale %}
 <section class="panel"><p class="error">The saved notes do not match the current transcript
 and evidence, so they are hidden. Process the meeting again to regenerate them.</p></section>
@@ -74,6 +88,9 @@ and evidence, so they are hidden. Process the meeting again to regenerate them.<
   {% else %}<p>Not generated.</p>{% endif %}
   {% if notes.get('style', 'meeting') == 'conversation' %}
     {% set sections = [("Discussion and perspectives", ["purpose", "topic", "fact", "requirement", "proposal", "decision", "action", "risk", "blocker", "question", "follow_up"])] %}
+  {% elif notes.get('style', 'meeting') == 'training' %}
+    {% set sections = [("Learning notes", ["purpose", "topic", "fact", "requirement", "proposal", "decision", "action", "risk", "blocker", "follow_up"]),
+                       ("Questions raised", ["question"])] %}
   {% else %}
     {% set sections = [("Key discussion points", ["purpose", "topic", "fact", "requirement"]),
                          ("Decisions made", ["decision"]),

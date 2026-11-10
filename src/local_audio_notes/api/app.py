@@ -34,7 +34,14 @@ from local_audio_notes.config import Settings, load_settings
 from local_audio_notes.errors import NotesError
 from local_audio_notes.extraction.grounding import normalize
 from local_audio_notes.ingestion.importer import ingest
-from local_audio_notes.jobs.queue import cancel, describe, enqueue, lock_path, recover
+from local_audio_notes.jobs.queue import (
+    cancel,
+    describe,
+    enqueue,
+    lock_path,
+    recover,
+    remove_meeting,
+)
 from local_audio_notes.llm import llm_client
 from local_audio_notes.notes.render import timestamp
 from local_audio_notes.pipeline import export_notes, get_meeting, verified_checkpoint
@@ -450,6 +457,19 @@ def create_app(
         if context["status"]["state"] in {"queued", "running"}:
             wake_worker()
         return page(request, "meeting.html", {**context, "worker": launcher.running()})
+
+    @app.post("/meetings/{identifier}/remove")
+    async def remove_meeting_record(request: Request, identifier: str) -> Response:
+        form = await read_form(request, guard)
+        if form.get("confirm") != "yes":
+            raise NotesError("Confirm removal of the meeting from the database")
+
+        def run() -> None:
+            with database(state["settings"]) as connection:
+                remove_meeting(connection, state["settings"], identifier)
+
+        await run_in_threadpool(run)
+        return back("/")
 
     @app.get("/meetings/{identifier}/audio")
     def audio(identifier: str) -> Response:

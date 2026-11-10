@@ -62,6 +62,7 @@ def adopt(connection: sqlite3.Connection, root: Path) -> dict[str, int]:
     """
     counts = {"adopted": 0, "unadoptable": 0}
     known = {r[0] for r in connection.execute("SELECT id FROM meetings")}
+    known.update(r[0] for r in connection.execute("SELECT id FROM removed_meetings"))
     for manifest in sorted(root.glob("*/meeting.json")):
         directory = manifest.parent
         if directory.name in known or directory.name.startswith("."):

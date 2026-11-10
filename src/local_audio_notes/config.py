@@ -10,11 +10,11 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     data_dir: Path = Path("data")
     models_dir: Path = Path("models")
-    device: Literal["auto", "cuda", "cpu"] = "auto"
+    device: Literal["auto", "cuda", "cpu"] = "cuda"
     whisper_model: str = "large-v3"
     language: str = "en"
     alignment_language: str = "en"
-    notes_style: Literal["meeting", "conversation"] = "meeting"
+    notes_style: Literal["meeting", "conversation", "training"] = "meeting"
     batch_size: int = Field(default=8, ge=1, le=64)
     compute_type: Literal["float16", "int8_float16", "int8", "float32"] = "float16"
     cpu_threads: int = Field(default=8, ge=1, le=32)

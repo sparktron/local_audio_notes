@@ -27,6 +27,12 @@ Say something was decided or agreed only when a cited item has category "decisio
 proposals as proposed. Describe inferred items as tentative. With no items, return no points.
 """
 
+TRAINING_GUIDANCE = """
+This is a training session. Summarize the most useful taught concepts and practical lessons,
+including substantive questions when useful. Do not infer who taught or asked a question.
+The detailed teaching items remain available separately; do not invent missing explanations.
+"""
+
 # Highest value first when the evidence exceeds the bounded context.
 PRIORITY = (
     "decision",
@@ -60,11 +66,18 @@ def summarize(
         return SummaryRecord(title=None, points=[])
     check()
     schema = MeetingSummary.model_json_schema()
-    budget = payload_limit(settings, SYSTEM, schema)
+    system = SYSTEM + TRAINING_GUIDANCE if settings.notes_style == "training" else SYSTEM
+    budget = payload_limit(settings, system, schema)
     selected: list[EvidenceItem] = []
     entries = []
     size = 40
-    for item in sorted(items, key=lambda i: (PRIORITY.index(i.category), i.id)):
+    priority = (
+        ("topic", "fact", "requirement", "question", "purpose")
+        if settings.notes_style == "training"
+        else ()
+    )
+    order = priority + tuple(category for category in PRIORITY if category not in priority)
+    for item in sorted(items, key=lambda i: (order.index(i.category), i.id)):
         entry = {
             "id": item.id,
             "category": item.category,
@@ -79,7 +92,7 @@ def summarize(
             entries.append(entry)
             size += cost
     raw = client.generate(
-        SYSTEM, json.dumps({"untrusted_evidence_items": entries}, ensure_ascii=False), schema
+        system, json.dumps({"untrusted_evidence_items": entries}, ensure_ascii=False), schema
     )
     try:
         result = MeetingSummary.model_validate_json(raw)

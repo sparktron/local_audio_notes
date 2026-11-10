@@ -178,3 +178,70 @@ def test_changed_transcript_invalidates_notes_until_regenerated(
     process(settings, identifier)
     with contextlib.closing(connect(settings.data_dir)) as connection:
         export_notes(settings, connection, identifier)
+
+
+def test_training_style_reprocesses_evidence_without_retranscribing(audio, settings, mocked):
+    calls, ollama = mocked
+    identifier = ingest(audio, settings)
+    process(settings, identifier)
+    previous_calls = ollama.extraction_calls
+    training = settings.model_copy(update={"notes_style": "training"})
+    process(training, identifier, notes_only=True)
+    assert (calls.transcribe, calls.align, calls.diarize) == (1, 1, 1)
+    assert ollama.extraction_calls > previous_calls
+    assert stages(training, identifier)["extracting"] == "succeeded"
+    output = json.loads((settings.data_dir / identifier / "notes.json").read_text())
+    assert output["style"] == "training"
+    assert "## Learning notes" in (settings.data_dir / identifier / "notes.md").read_text()
+
+
+def test_remove_meeting_clears_database_and_recovery_preserves_files(audio, settings, mocked):
+    from local_audio_notes.jobs.queue import recover, remove_meeting
+
+    identifier = ingest(audio, settings)
+    process(settings, identifier)
+    folder = settings.data_dir / identifier
+    original = (folder / "original.audio").read_bytes()
+    notes = (folder / "notes.md").read_bytes()
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        remove_meeting(connection, settings, identifier)
+        for table in (
+            "meetings",
+            "jobs",
+            "checkpoints",
+            "segments",
+            "extraction_chunks",
+            "items",
+            "item_evidence",
+            "speaker_names",
+            "speaker_corrections",
+            "speaker_labels",
+            "segment_search",
+            "item_search",
+            "segment_embeddings",
+        ):
+            column = "id" if table == "meetings" else "meeting_id"
+            assert (
+                connection.execute(
+                    f"SELECT count(*) FROM {table} WHERE {column} = ?", (identifier,)
+                ).fetchone()[0]
+                == 0
+            )
+        assert connection.execute("SELECT count(*) FROM stage_runs").fetchone()[0] == 0
+        assert recover(connection, settings)["adopted"] == 0
+        assert connection.execute("SELECT count(*) FROM meetings").fetchone()[0] == 0
+    assert (folder / "original.audio").read_bytes() == original
+    assert (folder / "notes.md").read_bytes() == notes
+    assert ingest(audio, settings) != identifier
+
+
+def test_remove_meeting_refuses_active_job(audio, settings):
+    from local_audio_notes.jobs.queue import enqueue, remove_meeting
+
+    identifier = ingest(audio, settings)
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        enqueue(connection, settings, identifier)
+        with pytest.raises(NotesError, match="Cancel the active job"):
+            remove_meeting(connection, settings, identifier)
+        assert connection.execute("SELECT count(*) FROM meetings").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM removed_meetings").fetchone()[0] == 0
