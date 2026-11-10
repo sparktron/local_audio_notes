@@ -68,7 +68,9 @@ def parser() -> argparse.ArgumentParser:
     offline.add_argument("--enforced", action="store_true")
     importer = sub.add_parser("ingest", help="Copy and validate audio; prints meeting ID")
     importer.add_argument("audio", type=Path)
-    importer.add_argument("--transcript", type=Path)
+    importer.add_argument(
+        "--transcript", type=Path, help="Attach TXT, SRT or JSON; choose its use with run --mode"
+    )
     for name, text in (
         ("run", "Queue and process a meeting now, resuming from verified checkpoints"),
         ("enqueue", "Queue processing for a later worker run; prints the job ID"),
@@ -76,7 +78,14 @@ def parser() -> argparse.ArgumentParser:
         runner = sub.add_parser(name, help=text)
         runner.add_argument("meeting_id")
         runner.add_argument(
-            "--mode", choices=["transcribe", "align", "compare"], default="transcribe"
+            "--mode",
+            choices=["transcribe", "align", "compare"],
+            default="transcribe",
+            help=(
+                "transcribe: audio is the source; align: timed SRT/JSON is the source; "
+                "compare: transcribe audio for notes and compare with attachment (TXT supported). "
+                "Untimed TXT cannot be aligned."
+            ),
         )
         runner.add_argument(
             "--notes-only", action="store_true", help="Reuse the attributed transcript"

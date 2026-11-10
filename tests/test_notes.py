@@ -6,7 +6,7 @@ from conftest import FakeOllama
 from local_audio_notes.errors import NotesError
 from local_audio_notes.extraction.consolidate import consolidate
 from local_audio_notes.extraction.evidence import extract
-from local_audio_notes.notes.render import export_json, render_markdown
+from local_audio_notes.notes.render import escape, export_json, render_markdown
 from local_audio_notes.notes.summary import summarize
 from local_audio_notes.schemas import Segment, SummaryRecord, Transcript
 from local_audio_notes.speakers.mapping import SpeakerView
@@ -54,6 +54,44 @@ def test_summary_skips_model_without_items(settings):
     client = FakeOllama()
     assert summarize([], client, settings) == SummaryRecord(title=None, points=[])
     assert client.payloads == []
+
+
+def test_summary_rejected_paraphrase_falls_back_to_verbatim_excerpt(items, settings):
+    client = FakeOllama(
+        summary=lambda entries: {
+            "title": "FabricatedPlace 2099",
+            "points": [
+                {"text": "Mallory ordered 2099 deliveries.", "item_ids": [entries[0]["id"]]}
+            ],
+        }
+    )
+    result = summarize(items, client, settings)
+    assert result.title is None
+    assert result.rejections == {"ungrounded_point": 1, "ungrounded_title": 1}
+    assert result.points and all(p.text.startswith("Source excerpt: “") for p in result.points)
+    assert all("Mallory" not in p.text and "2099" not in p.text for p in result.points)
+
+
+def test_summary_rejects_fabricated_quote(items, settings):
+    client = FakeOllama(
+        summary=lambda entries: {
+            "title": "Local storage format",
+            "points": [
+                {"text": 'The speaker said "fictional words".', "item_ids": [entries[0]["id"]]}
+            ],
+        }
+    )
+    result = summarize(items, client, settings)
+    assert result.points == []
+    assert result.rejections.get("unsupported_quote") == 1
+
+
+def test_conversation_style_has_no_decision_or_action_headings(items, transcript):
+    output = render_markdown(
+        {"id": "m"}, transcript, items, None, {}, SpeakerView(), "conversation"
+    )
+    assert "## Discussion and perspectives" in output
+    assert "## Proposed decisions" not in output and "## Action items" not in output
 
 
 def test_summary_invalid_schema(items, settings):
@@ -127,6 +165,13 @@ def test_markdown_active_content_escaped(settings):
     output = render_markdown(meeting, transcript, items, None, {}, SpeakerView())
     assert "<script>" not in output and "![x]" not in output and "<b>" not in output
     assert "\\|" in output and "Not generated." in output
+
+
+def test_markdown_keeps_quotes_without_allowing_html():
+    value = escape('It\'s "working" <script>alert(1)</script> & safe')
+    assert value.startswith('It\'s "working" ')
+    assert "<script>" not in value
+    assert "&lt;script&gt;" in value and "&amp;" in value
 
 
 def test_json_export_is_self_describing(items, transcript, settings):

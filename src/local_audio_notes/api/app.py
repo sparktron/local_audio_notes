@@ -56,6 +56,7 @@ EDITABLE: dict[str, type] = {
     "whisper_model": str,
     "language": str,
     "alignment_language": str,
+    "notes_style": str,
     "device": str,
     "compute_type": str,
     "batch_size": int,

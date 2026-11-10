@@ -287,12 +287,19 @@ schema using numeric **seconds**, monotonic segment starts, and segments no long
 {"segments": [{"start": 0.0, "end": 3.2, "text": "Verbatim spoken words."}]}
 ```
 
-UTF-8 TXT is supported for compare mode, not direct alignment: missing time anchors
+`transcribe` creates notes from audio and ignores any attachment; `align` uses the attached
+timed text as the notes source; `compare` transcribes the audio for notes and compares that
+new transcript with the attachment. UTF-8 TXT is supported for compare mode, not direct alignment: missing time anchors
 are not guessed. WhisperBoard export schemas vary; arbitrary vendor JSON, timestamps
 in milliseconds/strings and untimed content are rejected for alignment. Compare mode
 saves an exact comparison, not a diarization/transcription quality score. CLI errors return
 nonzero; Ctrl-C returns 130, SIGTERM 143; both preserve originals and completed stages. Only scratch copies of a
 failed import are cleaned up; caller-owned recordings are never deleted.
+
+Set `notes_style = "conversation"` in the TOML configuration, or choose Conversation on
+the web Settings page, to group items as discussion and perspectives without meeting decision
+or action sections. The default `meeting` style retains those sections. The setting applies
+when notes are generated or re-exported; model classifications still require human review.
 
 ## Validation and offline use
 

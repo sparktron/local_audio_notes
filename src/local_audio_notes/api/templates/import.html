@@ -20,10 +20,11 @@ The original file on disk is never modified or deleted.</p>
     <label>Mode
       <select name="mode">
         <option value="transcribe">Transcribe locally</option>
-        <option value="align">Align the attached timed transcript (SRT/JSON)</option>
-        <option value="compare">Transcribe locally and compare with the attached transcript</option>
+        <option value="align">Use attached timed SRT/JSON as the notes source</option>
+        <option value="compare">Transcribe audio for notes and compare against attachment</option>
       </select></label>
     <p class="hint">Model, language, speaker-count and GPU options are on the <a href="/settings">settings</a> page.</p>
+    <p class="hint">Transcribe ignores the attachment for notes. Align uses the supplied timed text and audio for word alignment and speakers. Compare creates notes from a new transcription, not the attachment. Untimed TXT cannot currently be used as the notes source; no timestamps are guessed.</p>
   </fieldset>
   <button type="submit">Import</button>
   <progress id="upload-progress" value="0" max="100" hidden></progress>

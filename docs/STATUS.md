@@ -1,4 +1,14 @@
-# Status — 2026-11-07
+# Status — 2026-11-10
+
+## Current follow-up
+
+Conversation-style rendering, clearer transcript-mode descriptions, conservative word-level
+citation attribution, and summary quotation checks are in progress. Untimed TXT still cannot
+be used as the source of notes: the pipeline and storage require timestamped segments. The
+next step is to represent untimed evidence without invented timestamps and validate an
+alignment/fallback workflow. The local Bionic endpoint was unreachable during this follow-up;
+new real-audio output and speaker accuracy remain unverified. Web tests timed out in the
+sandbox; see VALIDATION.md for the checks that ran.
 
 Branches: PR #1 merged `phases-1-2` into master. PRs #2 and #3 merged `phase-3` into `phases-1-2`
 and `phase-4` into `phase-3`, so Phases 3 and 4 reach master through PR #4 (`phase-3` → master).

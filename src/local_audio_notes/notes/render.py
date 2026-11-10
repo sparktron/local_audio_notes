@@ -17,7 +17,7 @@ def timestamp(seconds: float) -> str:
 
 def escape(value: str) -> str:
     # Markdown is a plain local artifact; prevent embedded HTML, images and active links.
-    value = html.escape(value).replace("\n", " ").replace("\r", " ")
+    value = html.escape(value, quote=False).replace("\n", " ").replace("\r", " ")
     value = "".join(c for c in value if c >= " " or c == "\t")
     return re.sub(r"([\\`*_{}\[\]()#+.!|>~-])", r"\\\1", value)
 
@@ -66,6 +66,7 @@ def render_markdown(
     summary: SummaryRecord | None,
     rejections: dict[str, int],
     view: SpeakerView,
+    style: str = "meeting",
 ) -> str:
     title = meeting.get("title") or (summary and summary.title)
     named = [p for p in participants(transcript, view) if p["name"]]
@@ -108,25 +109,27 @@ def render_markdown(
         if not selected:
             lines.append("None extracted.")
 
-    section("Key discussion points", {"purpose", "topic", "fact", "requirement"})
-    section("Decisions made", {"decision"})
-    section("Proposed decisions (not approved)", {"proposal"})
-    lines += [
-        "",
-        "## Action items",
-        "",
-        "| ID | Commitment | Owner | Deadline | Said by | Source |",
-        "| --- | --- | --- | --- | --- | --- |",
-    ]
-    for item in (i for i in items if i.category == "action"):
-        lines.append(
-            f"| {item.id} | {_text(item)}{_marks(item)} | {escape(item.owner or 'Not stated')} | "
-            f"{escape(item.deadline or 'Not stated')} | {escape(_speakers(item, view))} | "
-            f"{_sources(item)} |"
+    if style == "conversation":
+        section(
+            "Discussion and perspectives",
+            {
+                "purpose",
+                "topic",
+                "fact",
+                "requirement",
+                "proposal",
+                "decision",
+                "action",
+                "risk",
+                "blocker",
+                "question",
+                "follow_up",
+            },
         )
-    section("Risks and blockers", {"risk", "blocker"})
-    section("Outstanding questions", {"question"})
-    section("Follow-up agenda", {"follow_up"})
+    else:
+        section("Key discussion points", {"purpose", "topic", "fact", "requirement"})
+    if style == "meeting":
+        _meeting_sections(lines, items, section, view)
     lines += ["", "## Source references", ""]
     texts = {s.id: s for s in transcript.segments}
     for item in items:
@@ -156,6 +159,27 @@ def render_markdown(
     return "\n".join(lines)
 
 
+def _meeting_sections(lines, items, section, view):
+    section("Decisions made", {"decision"})
+    section("Proposed decisions (not approved)", {"proposal"})
+    lines += [
+        "",
+        "## Action items",
+        "",
+        "| ID | Commitment | Owner | Deadline | Said by | Source |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for item in (i for i in items if i.category == "action"):
+        lines.append(
+            f"| {item.id} | {_text(item)}{_marks(item)} | {escape(item.owner or 'Not stated')} | "
+            f"{escape(item.deadline or 'Not stated')} | {escape(_speakers(item, view))} | "
+            f"{_sources(item)} |"
+        )
+    section("Risks and blockers", {"risk", "blocker"})
+    section("Outstanding questions", {"question"})
+    section("Follow-up agenda", {"follow_up"})
+
+
 def export_json(
     meeting: dict[str, Any],
     transcript: Transcript,
@@ -164,10 +188,12 @@ def export_json(
     rejections: dict[str, int],
     view: SpeakerView,
     generated_by: dict[str, Any],
+    style: str = "meeting",
 ) -> dict[str, Any]:
     return {
         "version": RENDER_VERSION,
         "draft": True,
+        "style": style,
         "meeting": {
             "id": meeting["id"],
             "title": meeting.get("title"),

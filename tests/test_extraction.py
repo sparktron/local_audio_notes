@@ -7,7 +7,7 @@ from local_audio_notes.errors import NotesError
 from local_audio_notes.extraction.consolidate import consolidate
 from local_audio_notes.extraction.evidence import chunks, extract, validate_item
 from local_audio_notes.extraction.grounding import grounded, locate
-from local_audio_notes.schemas import ExtractedItem, ExtractionResult, Segment, Transcript
+from local_audio_notes.schemas import ExtractedItem, ExtractionResult, Segment, Transcript, Word
 
 
 def check(raw, transcript):
@@ -35,6 +35,53 @@ def test_valid_commitment_keeps_owner_deadline_and_transcript_speaker(transcript
     assert (result.owner, result.deadline) == ("Alice", "Friday")
     assert result.evidence[0].speaker == "Speaker 3"
     assert (result.evidence[0].start, result.evidence[0].end) == (6, 10)
+
+
+def test_citation_speaker_requires_unique_complete_word_support():
+    segment = Segment(
+        id="s000000",
+        start=0,
+        end=4,
+        text="Hello there. Yes indeed.",
+        speaker="Uncertain",
+        words=[
+            Word(text="Hello", start=0, end=0.4, speaker="Speaker 1"),
+            Word(text="there.", start=0.4, end=0.8, speaker="Speaker 1"),
+            Word(text="Yes", start=1, end=1.4, speaker="Speaker 2"),
+            Word(text="indeed.", start=1.4, end=2, speaker="Speaker 2"),
+        ],
+    )
+
+    def attributed(quote):
+        raw = item("topic", "x", [(segment.id, quote)])
+        return validate_item(ExtractedItem(**raw), {segment.id: segment})[0].evidence[0].speaker
+
+    assert attributed("Hello there") == "Speaker 1"
+    assert attributed("Yes indeed") == "Speaker 2"
+    assert attributed("there. Yes") == "Uncertain"
+    segment.words[0].overlap = True
+    assert attributed("Hello there") == "Uncertain"
+    segment.words[0].overlap = False
+    segment.words[0].start = None
+    segment.words[0].end = None
+    assert attributed("Hello there") == "Uncertain"
+
+
+def test_citation_speaker_repeated_quote_remains_uncertain():
+    segment = Segment(
+        id="s000000",
+        start=0,
+        end=3,
+        text="Yes yes",
+        speaker="Uncertain",
+        words=[
+            Word(text="Yes", start=0, end=1, speaker="Speaker 1"),
+            Word(text="yes", start=1, end=2, speaker="Speaker 2"),
+        ],
+    )
+    raw = item("topic", "x", [(segment.id, "Yes")])
+    found, _ = validate_item(ExtractedItem(**raw), {segment.id: segment})
+    assert found.evidence[0].speaker == "Uncertain"
 
 
 @pytest.mark.parametrize(
