@@ -1,5 +1,27 @@
 # Validation
 
+## Speech model preparation — 2026-11-07
+
+- Installed with `models-install` (revisions pinned to full commit SHAs, no token) and
+  `assets-install`; manifest in `models/manifest.json`:
+  - whisper: `Systran/faster-whisper-large-v3` @ `edaa852ec7e145841d8ffdb056a99866b5f0a478`
+    (MIT, 2.9 GB, 40 s download).
+  - alignment: `facebook/wav2vec2-base-960h` @ `22aad52d435eb6dbaf354bdad9b0da84ce7d6156`
+    (Apache-2.0, 1.1 GB; the snapshot includes unused TF weights).
+  - tokenizer: NLTK `punkt_tab` (recorded by SHA-256; not revision-pinned).
+  - vad: Silero JIT from the installed silero-vad 6.2.0 wheel.
+- Offline load check (`HF_HUB_OFFLINE=1`, network guard on, CUDA): all four inventories match
+  the manifest; Whisper large-v3 with the local Silero VAD loaded and ran in 9.7 s on a 3 s
+  440 Hz tone (0 speech segments, as expected); the alignment model loaded and timed both words
+  of a two-word segment in 1.0 s; punkt_tab split two sentences.
+- Not installed: diarization. `pyannote/speaker-diarization-community-1` (CC-BY-4.0, 34 MB,
+  revision `3533c8cf8e369892e6b79ff1bf80f7b0286a54ee`) is gated on Hugging Face and needs its
+  user conditions accepted and a read token. It bundles its own segmentation, embedding and
+  PLDA weights, so no other pyannote repository is needed. `models-check` therefore still
+  fails ("Required model assets missing or changed").
+
+Not demonstrated: transcription of real speech, diarization, the full pipeline.
+
 ## LM Studio / Bionic backend — 2026-11-05
 
 - `pytest -q`: **269 passed, 1 skipped**; Ruff check and format clean. New tests cover backend
