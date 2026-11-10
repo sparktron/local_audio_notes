@@ -126,6 +126,19 @@ def test_short_loaded_context_rejected(monkeypatch, lmstudio):
         LMStudioClient(lmstudio).require_local_model()
 
 
+def test_embedding_model_does_not_require_notes_context(monkeypatch, lmstudio):
+    embedding = {
+        **LOCAL,
+        "id": "nomic-embed-text",
+        "type": "embeddings",
+        "loaded_context_length": 2048,
+    }
+    serve(monkeypatch, lambda request: {"data": [embedding]})
+    assert LMStudioClient(lmstudio).require_local_model("nomic-embed-text") == (
+        "lmstudio:nomic-embed-text@gguf-Q6_K"
+    )
+
+
 def test_inventory_marks_remote_entries(monkeypatch, lmstudio):
     cloud = {"id": "deepseek-ai/DeepSeek-V4-Pro", "type": "llm"}
     serve(monkeypatch, lambda request: {"data": [LOCAL, cloud]})

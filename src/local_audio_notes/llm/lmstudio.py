@@ -43,7 +43,8 @@ class LMStudioClient:
 
     def require_local_model(self, name: str | None = None) -> str:
         """Verify a model (default: the notes model) is local; return an identity string."""
-        name = self.settings.ollama_model if name is None else name
+        notes_model = name is None
+        name = self.settings.ollama_model if notes_model else name
         if not name or "cloud" in name.lower():
             raise NotesError("Select a downloaded local LM Studio model in config.toml")
         matches = [m for m in self.models() if m["name"] == name]
@@ -51,7 +52,7 @@ class LMStudioClient:
             raise NotesError("Configured LM Studio model is not a downloaded local model")
         model = matches[0]
         loaded = model.get("loaded_context_length")
-        if isinstance(loaded, int) and loaded < self.settings.ollama_context:
+        if notes_model and isinstance(loaded, int) and loaded < self.settings.ollama_context:
             raise NotesError("LM Studio model is loaded with less context than ollama_context")
         quantization = model.get("quantization") or "unknown-quantization"
         return f"lmstudio:{name}@{model['compatibility_type']}-{quantization}"
