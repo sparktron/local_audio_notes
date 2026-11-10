@@ -1,9 +1,10 @@
 """Summarize an strace network trace written by observe_network.sh.
 
-    python3 -I scripts/network_trace.py TRACE COMMAND_EXIT_STATUS
+    python3 -I scripts/network_trace.py TRACE COMMAND_EXIT_STATUS [LLM_PORT]
 
 Prints every distinct endpoint as JSON. Exit status 0 when no IP traffic goes anywhere except
-loopback port 11434 (Ollama) or a loopback port the traced command bound itself; 1 otherwise.
+loopback LLM_PORT (default 11434, Ollama) or a loopback port the traced command bound itself;
+1 otherwise.
 """
 
 import json
@@ -33,7 +34,7 @@ def blank_payloads(line: str) -> str:
     return QUOTED.sub(replace, line)
 
 
-def summarize(lines) -> dict:
+def summarize(lines, llm_port: int = 11434) -> dict:
     seen: dict[str, int] = {}
     bound: set[int] = set()
     for line in lines:
@@ -60,7 +61,7 @@ def summarize(lines) -> dict:
             else:
                 key = family  # e.g. AF_NETLINK interface enumeration (kernel, not network)
             seen[key] = seen.get(key, 0) + 1
-    allowed = {11434} | bound
+    allowed = {llm_port} | bound
     violations = sorted(
         k
         for k in seen
@@ -76,8 +77,9 @@ def summarize(lines) -> dict:
 
 def main() -> None:
     trace, status = sys.argv[1], int(sys.argv[2])
+    llm_port = int(sys.argv[3]) if len(sys.argv) > 3 else 11434
     with open(trace, encoding="utf-8", errors="replace") as handle:
-        result = {"command_exit_status": status, **summarize(handle)}
+        result = {"command_exit_status": status, **summarize(handle, llm_port)}
     print(json.dumps(result, indent=2))
     sys.exit(1 if result["unexpected_ip_endpoints"] else 0)
 

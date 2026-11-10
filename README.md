@@ -137,6 +137,30 @@ to an exact installed tag. Begin with a Qwen 14B-class model **if already instal
 before selecting it. No Qwen model or alternative was benchmarked or downloaded here.
 The CLI lists installed models/digests and rejects cloud/remote aliases. It never calls pull.
 
+### LM Studio or Bionic instead of Ollama
+
+Set `llm_backend = "lmstudio"` and point `ollama_url` at the server's loopback port; the
+network guard then allows only that port. Bionic serves its API on `http://127.0.0.1:1235`
+(the `port` in `~/.lmstudio/apps/bionic/.internal/http-server-config.json`); the LM Studio
+app's default is `http://127.0.0.1:1234`. Bionic also listens on another, changing port
+for its own use, which does not serve this API. Notes use
+`/v1/chat/completions` with a `json_schema` response format, embeddings use `/v1/embeddings`,
+and `ollama-models` lists `/api/v0/models`. Set `ollama_model` (and `embedding_model`) to a
+model ID from that list. Only models with a local weight format (GGUF or MLX) are accepted;
+cloud models are refused. The other `ollama_*` keys apply to this backend too.
+
+LM Studio cannot set a context length per request. Load the model with at least
+`ollama_context` tokens, because a server set to truncate on overflow would drop part of
+the transcript without an error. A model loaded on demand uses the context saved in the
+app's settings for that model; the client refuses a loaded model reporting less than
+`ollama_context`, but cannot check a model that is not loaded yet.
+Each request sends `ttl` 60, so a model the server loaded on demand unloads a minute after
+the last request, freeing GPU memory as Ollama's `keep_alive` 0 does. A model you loaded by
+hand in the app stays loaded: unload it before transcribing if GPU memory is tight.
+If the server logs prompts (`logSensitiveData`), meeting transcripts end up in its logs, and
+with CORS on, web pages in a local browser can call it: turn both off first.
+Set `LLM_PORT` to the same port when using `scripts/observe_network.sh`.
+
 Defaults: local `large-v3` Whisper directory; English; batch 8; CUDA float16 when
 PyTorch supports it, otherwise CPU int8; speaker bounds 1–8; 2 GiB/8-hour input limits;
 10-minute transcription windows; at most 8192 Ollama context tokens and 2048 output

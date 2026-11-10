@@ -19,12 +19,48 @@ from local_audio_notes.models import install_model, register_model, verify_model
         "http://127.0.0.1:11434@evil.test",
         "http://127.0.0.1:11434/api",
         "http://127.0.0.1:11434?x=1",
-        "http://127.0.0.1:9999",
+        "http://127.0.0.1",
+        "http://127.0.0.1:80",
+        "http://127.0.0.1:0",
+        "http://127.0.0.1:70000",
+        "http://127.0.0.1:abc",
     ],
 )
 def test_remote_ollama_config_rejected(url):
     with pytest.raises(ValidationError):
         Settings(ollama_url=url)
+
+
+@pytest.mark.parametrize("url", ["http://127.0.0.1:11434", "http://127.0.0.1:1234/"])
+def test_loopback_llm_port_configurable(url):
+    settings = Settings(ollama_url=url)
+    assert settings.llm_port == int(url.rstrip("/").rsplit(":", 1)[1])
+
+
+def test_network_guard_allows_only_the_configured_llm_port():
+    script = """
+import socket
+from local_audio_notes.security.runtime import enable_runtime
+from local_audio_notes.errors import NotesError
+enable_runtime(llm_port=1234)
+with socket.socket() as s:
+    try:
+        s.connect(('127.0.0.1', 11434))
+    except NotesError:
+        pass
+    else:
+        raise AssertionError('Ollama port allowed while LM Studio is configured')
+with socket.socket() as s:
+    s.settimeout(1)
+    try:
+        s.connect(('127.0.0.1', 1234))  # allowed by the guard; refused if nothing listens
+    except NotesError:
+        raise AssertionError('configured port blocked')
+    except OSError:
+        pass
+"""
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
 
 def test_download_never_implicit(tmp_path):

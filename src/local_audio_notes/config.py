@@ -33,6 +33,9 @@ class Settings(BaseModel):
     embedding_model: str = ""
     # Reuse SHA-256 results while a file's inode, size, mtime and ctime are unchanged.
     hash_cache: bool = True
+    # Local LLM server: "ollama" (native API) or "lmstudio" (LM Studio or Bionic, OpenAI-
+    # compatible API). The ollama_* keys below configure whichever backend is selected.
+    llm_backend: Literal["ollama", "lmstudio"] = "ollama"
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = ""
     ollama_context: int = Field(default=8192, ge=8192, le=16384)
@@ -42,20 +45,30 @@ class Settings(BaseModel):
 
     @field_validator("ollama_url")
     @classmethod
-    def local_ollama(cls, value: str) -> str:
+    def local_llm(cls, value: str) -> str:
         parsed = urlsplit(value)
+        try:
+            port = parsed.port
+        except ValueError:
+            port = None
         if (
             parsed.scheme != "http"
             or parsed.hostname != "127.0.0.1"
-            or parsed.port != 11434
+            or port is None
+            or not 1024 <= port <= 65535
             or parsed.username
             or parsed.password
             or parsed.path not in ("", "/")
             or parsed.query
             or parsed.fragment
         ):
-            raise ValueError("Ollama must use http://127.0.0.1:11434")
+            raise ValueError("The LLM API must use http://127.0.0.1:PORT, PORT 1024–65535")
         return value.rstrip("/")
+
+    @property
+    def llm_port(self) -> int:
+        """The only loopback port the network guard lets the application connect to."""
+        return urlsplit(self.ollama_url).port or 0
 
     @model_validator(mode="after")
     def speaker_bounds(self) -> "Settings":

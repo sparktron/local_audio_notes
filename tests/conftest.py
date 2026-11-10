@@ -239,5 +239,5 @@ def mocked(monkeypatch, transcript, tmp_path):
     monkeypatch.setattr(pipeline, "model_fingerprints", lambda root: dict.fromkeys(KINDS, "fp"))
     monkeypatch.setattr(pipeline, "WhisperXBackend", Backend)
     monkeypatch.setattr(pipeline, "diarize", diarize)
-    monkeypatch.setattr(pipeline, "OllamaClient", lambda settings: ollama)
+    monkeypatch.setattr(pipeline, "llm_client", lambda settings: ollama)
     return calls, ollama
