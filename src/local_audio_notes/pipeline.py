@@ -338,13 +338,28 @@ def export_notes(settings: Settings, connection: sqlite3.Connection, meeting_id:
     view = load_view(connection, meeting_id, found["attributing"]["transcript.json"])
     atomic_write(
         directory / "notes.md",
-        render_markdown(meeting, transcript, evidence.items, summary, evidence.rejections, view),
+        render_markdown(
+            meeting,
+            transcript,
+            evidence.items,
+            summary,
+            evidence.rejections,
+            view,
+            settings.notes_style,
+        ),
     )
     generated_by = {**evidence.generated_by, "summary_version": SUMMARY_VERSION}
     write_json(
         directory / "notes.json",
         export_json(
-            meeting, transcript, evidence.items, summary, evidence.rejections, view, generated_by
+            meeting,
+            transcript,
+            evidence.items,
+            summary,
+            evidence.rejections,
+            view,
+            generated_by,
+            settings.notes_style,
         ),
     )
     names = ["notes.md", "notes.json"]

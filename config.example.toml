@@ -4,6 +4,7 @@ device = "auto"  # auto, cuda, cpu
 whisper_model = "large-v3"  # informational name; weights come from local manifest
 language = "en"  # use "auto" for language detection
 alignment_language = "en"  # must match detected language; install another model explicitly
+notes_style = "meeting"  # "conversation" groups perspectives without decision/action sections
 batch_size = 8
 compute_type = "float16"  # CPU always uses int8
 cpu_threads = 8

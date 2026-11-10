@@ -72,12 +72,17 @@ and evidence, so they are hidden. Process the meeting again to regenerate them.<
   {% if notes.summary and notes.summary.points %}
     <ul>{% for p in notes.summary.points %}<li>{{ p.text }} <small>({{ p.item_ids|join(", ") }})</small></li>{% endfor %}</ul>
   {% else %}<p>Not generated.</p>{% endif %}
-  {% for title, cats in [("Key discussion points", ["purpose", "topic", "fact", "requirement"]),
+  {% if notes.get('style', 'meeting') == 'conversation' %}
+    {% set sections = [("Discussion and perspectives", ["purpose", "topic", "fact", "requirement", "proposal", "decision", "action", "risk", "blocker", "question", "follow_up"])] %}
+  {% else %}
+    {% set sections = [("Key discussion points", ["purpose", "topic", "fact", "requirement"]),
                          ("Decisions made", ["decision"]),
                          ("Proposed decisions (not approved)", ["proposal"]),
                          ("Risks and blockers", ["risk", "blocker"]),
                          ("Outstanding questions", ["question"]),
                          ("Follow-up agenda", ["follow_up"])] %}
+  {% endif %}
+  {% for title, cats in sections %}
     <h3>{{ title }}</h3>
     {% set selected = items|selectattr("category", "in", cats)|list %}
     {% if selected %}<ul>
@@ -90,6 +95,7 @@ and evidence, so they are hidden. Process the meeting again to regenerate them.<
       {% endfor %}</ul>
     {% else %}<p>None extracted.</p>{% endif %}
   {% endfor %}
+  {% if notes.get('style', 'meeting') == 'meeting' %}
   <h3>Action items</h3>
   {% set actions = items|selectattr("category", "equalto", "action")|list %}
   {% if actions %}
@@ -109,6 +115,7 @@ and evidence, so they are hidden. Process the meeting again to regenerate them.<
     </tbody>
   </table>
   {% else %}<p>None extracted.</p>{% endif %}
+  {% endif %}
   {% if notes.rejections %}
     <p class="hint">Model output rejected or stripped:
       {% for k, v in notes.rejections|dictsort %}{{ k }} {{ v }}{% if not loop.last %}, {% endif %}{% endfor %}</p>

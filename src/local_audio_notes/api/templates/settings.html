@@ -9,6 +9,14 @@
 <form method="post" action="/settings">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <fieldset>
+    <legend>Notes style</legend>
+    <label>Style <select name="notes_style">
+      <option value="meeting"{% if values.notes_style == "meeting" %} selected{% endif %}>Meeting: decisions and action items</option>
+      <option value="conversation"{% if values.notes_style == "conversation" %} selected{% endif %}>Conversation: discussion and perspectives</option>
+    </select></label>
+    <p class="hint">Applies when notes are next generated or exported.</p>
+  </fieldset>
+  <fieldset>
     <legend>Transcription</legend>
     <label>Whisper model label <input name="whisper_model" value="{{ values.whisper_model }}"></label>
     <p class="hint">Weights come from the registered local model directory (<code>models-register</code>), not this label.</p>

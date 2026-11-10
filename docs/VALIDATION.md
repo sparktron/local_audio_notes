@@ -226,3 +226,12 @@ the dev extra now includes build tooling so packaging can be validated offline.
 The storage files that appeared during Phase 1 closeout (`storage/db.py`,
 `storage/migrations.py`, `storage/locking.py`) were the start of the Phase 2 implementation in
 a parallel session. They are now complete, lint-clean and covered by the Phase 2 results above.
+
+# Follow-up validation — 2026-11-10
+
+- `.venv/bin/ruff check src tests` and `.venv/bin/ruff format --check src tests`: passed.
+- `.venv/bin/python -m pytest -q tests/test_notes.py tests/test_extraction.py tests/test_speakers.py tests/test_pipeline.py`: 50 passed.
+- Web test runs timed out in this environment. Three modified templates compiled with Jinja.
+- The local Bionic model endpoint was unreachable; no fresh real-audio inference or
+  comparison against the recording was performed. Existing diarization output is not an
+  accuracy reference. Untimed transcript source support remains unimplemented.
