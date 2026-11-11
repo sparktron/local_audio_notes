@@ -90,7 +90,7 @@ def test_sign_in_required_and_security_headers(anonymous):
     assert response.status_code == 401 and "Sign in required" in response.text
     assert "default-src 'none'" in response.headers["content-security-policy"]
     assert response.headers["x-frame-options"] == "DENY"
-    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["referrer-policy"] == "same-origin"
     assert anonymous.get("/static/app.css").status_code == 200
     assert anonymous.get("/login?token=wrong").status_code == 403
     assert anonymous.get("/meetings/x/audio").status_code == 401
@@ -122,7 +122,7 @@ def test_dns_rebinding_host_rejected(client):
 
 @pytest.mark.parametrize(
     "headers",
-    [{"Origin": "http://attacker.example"}, {"Sec-Fetch-Site": "cross-site"}],
+    [{"Origin": "http://attacker.example"}, {"Origin": "null"}, {"Sec-Fetch-Site": "cross-site"}],
 )
 def test_cross_site_posts_refused(client, headers):
     response = client.post("/settings", data={"csrf": csrf(client)}, headers=headers)
@@ -408,8 +408,47 @@ def test_remove_meeting_requires_confirmation_and_preserves_files(client, settin
     page = client.get(f"/meetings/{identifier}").text
     assert "Remove this meeting from the database" in page
     assert post(client, f"/meetings/{identifier}/remove", {}).status_code == 400
-    response = post(client, f"/meetings/{identifier}/remove", {"confirm": "yes"})
+    response = post(
+        client,
+        f"/meetings/{identifier}/remove",
+        {"confirm": "yes"},
+        headers={"Origin": BASE, "Sec-Fetch-Site": "same-origin"},
+    )
     assert response.status_code == 200
     with contextlib.closing(connect(settings.data_dir)) as connection:
         assert connection.execute("SELECT count(*) FROM meetings").fetchone()[0] == 0
     assert (settings.data_dir / identifier / "original.audio").exists()
+
+
+def test_folder_audio_import_skips_existing_by_content_and_never_queues_duplicate(
+    client, settings, audio, launcher, tmp_path
+):
+    from local_audio_notes.ingestion.importer import ingest
+
+    transcript = tmp_path / "existing.txt"
+    transcript.write_text("A transcript")
+    identifier = ingest(audio, settings, transcript)
+    upload_id = upload(client, audio).json()["upload_id"]
+    result = post(client, "/api/import-audio", {"audio_upload": upload_id, "process": "on"})
+    assert result.json() == {"meeting_id": identifier, "created": False}
+    assert launcher.started == 0
+    assert not (settings.data_dir / ".uploads" / upload_id).exists()
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        assert connection.execute("SELECT count(*) FROM meetings").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM jobs").fetchone()[0] == 0
+
+
+def test_folder_audio_import_creates_and_queues_once(client, settings, audio, launcher):
+    upload_id = upload(client, audio).json()["upload_id"]
+    result = post(client, "/api/import-audio", {"audio_upload": upload_id, "process": "on"})
+    assert result.status_code == 200 and result.json()["created"] is True
+    identifier = result.json()["meeting_id"]
+    assert launcher.started == 1
+    second = upload(client, audio).json()["upload_id"]
+    result = post(client, "/api/import-audio", {"audio_upload": second, "process": "on"})
+    assert result.json() == {"meeting_id": identifier, "created": False}
+    assert launcher.started == 1
+    assert not any((settings.data_dir / ".uploads").iterdir())
+    with contextlib.closing(connect(settings.data_dir)) as connection:
+        assert connection.execute("SELECT count(*) FROM jobs").fetchone()[0] == 1
+    assert client.post("/api/import-audio", data={"audio_upload": second}).status_code == 400

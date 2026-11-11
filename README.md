@@ -97,6 +97,16 @@ again with **Notes only** (or `run ID --notes-only`) to reuse the transcript whi
 style-specific evidence and summary. Exporting alone only changes the layout; it cannot recover
 teaching details that were not previously extracted.
 
+### Import a folder of recordings
+
+On the **Import** page, use **Import a folder** to select a folder. The browser includes
+supported WAV, M4A, MP3 and FLAC files from its subfolders; other files are ignored. Each file
+is checked by its audio content against existing meetings, regardless of filename or transcript
+attachment. Existing recordings are skipped and are not queued again. The results list shows
+imported, skipped and failed files. Folder import uses audio transcription and does not attach
+transcripts; use the single-recording form if you need one. Files are handled one at a time,
+and the original files are never modified.
+
 ### Use the command line instead
 
 Replace the example below with the path to your audio file. `ingest` prints an ID; `run`
